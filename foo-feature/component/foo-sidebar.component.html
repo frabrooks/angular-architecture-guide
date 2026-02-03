@@ -1,0 +1,29 @@
+<div class="foo-sidebar" [class.expanded]="vm().isExpanded">
+  <!-- Header with toggle -->
+  <div class="sidebar-header">
+    <h3>Foo Items</h3>
+    <button 
+      type="button" 
+      class="toggle-btn"
+      (click)="toggleExpanded()"
+      [attr.aria-expanded]="vm().isExpanded">
+      {{ vm().isExpanded ? 'Collapse' : 'Expand' }}
+    </button>
+  </div>
+
+  <!-- Content (only visible when expanded) -->
+  @if (vm().isExpanded) {
+    <div class="sidebar-content">
+      
+      <fb-text-input-ctrl
+          id="text-input-ctrl"
+          name="text-input-ctrl"
+          label="Foo Name"
+          placeholder="Placeholder text"
+          [ngModel]="vm().textInputValue"
+          (ngModelChange)="textInputChange($event)"
+      ></fb-text-input-ctrl>
+
+    </div>
+  }
+</div>
