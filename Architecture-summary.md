@@ -1,6 +1,61 @@
-# Architecture Summary (NgRx Best Practice + Signals)
+# Architecture Guide for Angular Applications using NgRx
 
-## Principles
+This document summarizes recommended architecture patterns and folder structures for Angular applications using NgRx and Signals. It covers high-level architectural principles, folder organization, component patterns, and routing strategies.
+
+This document assumes a basic familiarity with Angular, NgRx, and Signals.
+
+> For an introduction to NgRx and guidance on the best-practices as well as anti-patterns to avoid, see here: (TODO)
+
+> For a detailed guide on the recommended testing approach, see here: (TODO)
+
+
+## What is Codebase Architecture?
+
+When we talk about codebase architecture, we're referring to the high-level organizational structure and design principles that govern how code is arranged, how components interact, and how the system evolves over time.
+
+Key Aspects of Codebase Architecture
+
+1. Structural Organization
+Folder/file hierarchy - How code is physically organized (like your api/, features/, core/ structure)
+Module boundaries - What belongs together and what should be separated
+Dependency direction - Which parts can depend on which other parts
+
+2. Interaction Patterns
+Data flow - How information moves through the system (e.g., NgRx actions → effects → reducers)
+Communication protocols - How different parts talk to each other
+State management - Where and how application state is stored and updated
+
+3. Design Principles & Constraints
+Separation of concerns - Each piece has a clear, focused responsibility
+Abstraction layers - What's hidden vs. exposed at different levels
+Coupling & cohesion - How tightly components are connected vs. how focused they are internally
+
+
+## **Common architecture approaches**
+
+In terms of organising code, there are arguably three different approaches/options you'll see (quibbles aside like what folders are called, whether you have 'common' folder or a 'shared' folder etc.):
+
+1. ❌ **Emergent architecture**
+   Which is to say, no enforced structure, just whatever feels good at the time, path of least resistance  etc. In the best light this could be described as a 'domain-driven' folder structure, as developers will naturally tend to group code by business domain.
+   The problem is, every big LOB application tends to have some object that the app is built to manage, e.g. a case, instruction, contract, project, plan etc. And so over time, you end up with a massive `case/` or `instruction/` folder with deep nesting.
+   In any reasonably complex project - and really, if your project is simple you might as well use generative AI or low-code tools to build it - this approach tends to lead to confusion and difficulty finding things. It also makes it hard to reason about dependencies between features, as everything is tangled together. So prefer even an opinionated structure over this.
+
+3. ❌ **BE inspired architecture**
+   i.e. domain/ presentation/ services/ etc. breaks code down according to layers or concerns, similar to how backend applications are often structured. This makes a lot of sense on the backend where you have clear layers (controllers, services, repositories etc.) and where at a certain point of abstraction, data is data. It doesn't matter whether it's user data, order data, invoice data etc. endpoints all flow through the same layers and are processed similarly and the whole application is eventually compiled into a single deployable unit.
+   On the frontend however, we have the concept of lazy-loaded feature modules, each with their own bundle/chunk. This means that features are more isolated from each other and (should) have clearer boundaries. There's also a lot more variation between features on the frontend. One might contain a map view with complex interactions, another might be a simple form, another containing a payments integration etc. Grouping code by layer/concern tends to obscure these differences and make it harder to navigate the codebase. It can also lead to large, monolithic layers that are hard to maintain and reason about. It also breaks the principle of cohesion, as code that changes together is often spread across multiple layers.
+
+2. ❌ **Nested feature driven architecture**
+   This is where you enforce a feature-based structure, but allow deep nesting within features. This allows for features within features. e.g. `case/` feature might have `case-details/`, `case-tasks/`, `case-history/` sub-features, each with their own store, views, components etc.
+   The problem with this approach is that it can lead to very deep nesting, making it hard to find things. It can also lead to duplication of code if multiple features need similar functionality. And what happens when a sub-feature of feature A suddenly also has need to be a sub-feature of feature B? You'd need to move it up a level of course, but then you'd lose 'feature folder within feature A means dependent on A' assumption. Some of A's dependents might be sub-features within the `feature/feature-a` folder, others might be siblings of `feature-a` at the top level `features/` folder.
+
+3. ✅ **Flat feature driven architecture**
+    This is the approach recommended here. Each feature gets its own folder under `features/`. No sub-features within features. If a feature gets too big, consider splitting it into multiple features at the top level `features/` folder.
+    
+    This keeps things simple and predictable. You always know where to find a feature's code, and you avoid deep nesting. It also makes it easier to manage dependencies between features, as all features are at the same level.
+
+
+
+## High level overview of an NgRx feature driven architecture
 
 - **NgRx Store/Effects own orchestration**: async, side-effects, cross-feature dependencies, caching/idempotency.
 - **Components own local UI state** via signals (as local as possible).
@@ -14,21 +69,23 @@ If most PRs are being 'rubber-stamped' without deep review, that's a sign the ar
 
 ## Recommended Folder Structure
 
-The important part of the architecture is in organising the features, i.e. the bulk of the value adding code.
+The best place to start with understanding the architecture is in looking at the folder structure. This is, after all, the first thing a new developer will see when they open the codebase. Later on we'll dive into the specifics of feature modules and their structure, which is where the bulk of the application code will live.
 
-But we'll start from the top and look at a recommended top-level folder structure before diving into the feature structure.
+The goals:
 
-The goal is to keep file hierarchy shallow and predictable while grouping code in a way that is meaningful but also free from ambiguity, i.e. what's the difference between a 'core/' folder and 'common/' folder, anyone?
+- Keep file hierarchy shallow and predictable (no more 'where is that file again?')
+- Group code logically not semantically (i.e. code in `api/` relates to backend APIs, code in `core/` goes in initial bundle etc.)
+- Ensure system is free from ambiguity, i.e. what's the difference between a 'core/' folder and 'common/' folder?
 
 
-Top level structure:
+Top level structure (i.e. app/src/ contents):
 ```
 api/
 core/
 consts/
+features/
 shared/
 types/
-features/
 ```
 
 Let's describe each of the above in turn:
@@ -120,52 +177,33 @@ Type definitions and interfaces that are used throughout the application. Simila
 
 ### **features/**
 
-
 The main application features, each in its own folder. This is where the bulk of the application code will live.
 
 
-#### **What is a feature?**
+## **What is a feature?**
 
-It's worth pinning down what 'feature' means here. A feature doesn't necessarily equate to a a whole 'feature' of the application as it might exist in the minds of users or business analysts. A feature in that sense will often require a lot of code, multiple screens, complex state management etc.
+It's worth pinning down what the 'feature' in `/features` means here. The *feature* in `/features` refers to a unit of code organization that groups related functionality together; a feature *module*. A feature module doesn't necessarily equate to a a *product* feature as it might exist in the minds of the users or the business analysts. A feature in that sense will often require a lot of code, multiple screens, complex user flows.
 
-Think of a feature in this architecture as a unit of code organization that groups related functionality together. Multiple features may together implement a proper 'feature' or larger user journey or business capability.
+Sometimes a feature module will neatly encapsulate all the code for a specific product feature, other times multiple feature *modules* will work together to implement a *product* feature or larger user journey or business capability. In general, all feature modules will be dependent on (free to import from) `core/`, `consts/`, `api/`, `shared/` and `types/` but feature modules should avoid depending on each other unless absolutely necessary.
 
-When it comes to organizing business features into code features, there are two semi-competing instincts, Cohesion - stuff that changes together, should stay together - and the goal that each feature be kept small to aid in maintainability and improve the value of the lazy-loading of bundles/chunks.
+When it comes to organizing product features into feature modules, there are two semi-competing instincts, Cohesion - stuff that changes together, should stay together - and the goal that each feature be kept small to aid in maintainability and improve the value of the lazy-loading of bundles/chunks.
 
-> In high-velocity projects/teams or projects that have implemented continous delivery/deployment practices, lazy-loaded feature modules provide a valuable way to reduce risk of a refactor. You can start by duplicating an entire feature module, renaming the clone, and creating a 'v2' route and redirecting between the new and the old routes via runtime feature flags. The result being that refactors or experimental features can be merged and then tested at a later time when QA capacity is available.
-
-Cohesion suggests grouping code more tightly, while the goal of lazy-loading suggests keeping features smaller and more numerous.
-
-> We also break cohesion by moving BE API/HTTP services out to `api/` and it would be a valid choice to move http services into a feature module under `features/some-feature/services/` but in environments where FE and BE teams are often composed of different people/teams, cordoning off all BE API interaction into `api/` makes collaboration and ownership clearer IMO.
-
-There's no definitive right answer here, it's where judgement comes in. In general, strive for clarity and maintainability over rigid adherence to either principle.
+Cohesion suggests grouping code more tightly, while the goal of lazy-loading suggests keeping features smaller and more numerous. There's no definitive right answer here, it's where judgement comes in. In general, strive for clarity and maintainability over rigid adherence to either principle.
 
 
-#### **Architecture approaches (compare and contrast)**
-
-In terms of organising code, there are arguably three different approaches/options you'll see (quibles aside like what folders are called, whether you have 'common' folder or a 'shared' folder etc.):
-
-1. **Emergent architecture**
-   Which is to say, no enforced structure, just whatever feels good at the time, path of least resistance. In the best light this could be described as a 'domain-driven' folder structure, as developers will naturally tend to group code by business domain.
-   The problem is, every big LOB application tends to have some object that the app is built to manage, e.g. a case, instruction, contract, project, plan etc. And so over time, you end up with a massive `case/` or `instruction/` folder with deep nesting.
-
-2. **Nested feature driven architecture**
-   This is where you enforce a feature-based structure, but allow deep nesting within features. This allows for features within features. e.g. `case/` feature might have `case-details/`, `case-tasks/`, `case-history/` sub-features, each with their own store, views, components etc.
-   The problem with this approach is that it can lead to very deep nesting, making it hard to find things. It can also lead to duplication of code if multiple features need similar functionality. And what happens when a sub-feature of feature A suddenly also has need to be a sub-feature of feature B? You'd need to move it up a level of course, but then you'd lose 'feature folder within feature A means dependent on A' assumption. Some of A's dependents might be sub-features within the `feature/feature-a` folder, others might be siblings of `feature-a` at the top level `features/` folder.
-
-3. **Flat feature driven architecture**
-    This is the approach recommended here. Each feature gets its own folder under `features/`. No sub-features within features. If a feature gets too big, consider splitting it into multiple features at the top level `features/` folder.
-    
-    This keeps things simple and predictable. You always know where to find a feature's code, and you avoid deep nesting. It also makes it easier to manage dependencies between features, as all features are at the same level.
+> In high-velocity projects/teams or projects that have implemented continous delivery & deployment, lazy-loaded feature modules in tandem with run-time feature flags provide a valuable way to reduce risk of changes. You can duplicate an entire feature module, renaming the clone, and creating a 'v2' route (a lot like BE APIs will do) and redirect between the new and the old routes according to flag configuration. The result being that refactors or experimental features can be merged and then tested at a later time when QA capacity is available.
 
 
+> We also break the cohesion principle by moving BE API/HTTP services out to `api/` and it would be a valid choice to move http services into the relevant feature module under `features/some-feature/services/some-feature.http.service.ts.` But in environments where FE and BE teams are often composed of different people with different specialties, separation of code according to collaboration boundaries gives us separation of concerns, more intuitive code reviews, and a simpler architecture that abstracts the bulk of the FE code from BE implementation details.
 
-Example structure within `features/`:
+## Structure of a feature module
+
+Example structure within `features/` with two example features:
 
 ```
 features/
 
-  // Simple feature, only one screen/view
+  // Simple feature, only one screen/view:
 
   foo-feature/
     store/
@@ -181,35 +219,41 @@ features/
       foo-feature-screen.spec.ts
     routes.ts
 
-  // More complex feature, multiple screens/views, note /view becomes /views
+  // More complex feature, multiple screens/views:
 
   baz-feature/
     services/
-      baz-feature.service.ts
-      baz-feature.service.spec.ts
+      service-name.service.ts
+      service-name.spec.ts
     utils/
-      baz.guard.ts
-      baz.pipe.ts
-      baz.helpers.ts
-      baz-helpers.spec.ts
+      guard-name.guard.ts
+      guard-name.spec.ts
+      pipe-name.pipe.ts
+      pipe-name.spec.ts
+      helper-name.helpers.ts
+      helper-name.spec.ts
     store/
+      baz-feature.adapters.ts
       baz-feature.actions.ts
       baz-feature.effects.ts
       baz-feature.reducer.ts
       baz-feature.selectors.ts
-    components/
-      baz-sidebar/
-        baz-sidebar.component.ts
-        baz-sidebar.component.html
-        baz-sidebar.component.css
-        baz-sidebar.viewmodel.ts
-        baz-sidebar.spec.ts
+    
+    // Note: only one component, so we don't need a /baz-sidebar folder as no further nesting needed
+    component/
+      baz-sidebar.component.ts
+      baz-sidebar.component.html
+      baz-sidebar.component.css
+      baz-sidebar.viewmodel.ts (optional, component may have inputs filled by values from parent screen vm)
+      baz-sidebar.spec.ts
+
+    // Note: more than one screen, so /view becomes /views, and additional nesting is required
     views/
       baz-screen-one/
         baz-screen-one.component.ts
         baz-screen-one.component.html
         baz-screen-one.component.css
-        baz-screen-one.viewmodel.ts
+        baz-screen-one.viewmodel.ts 
         baz-screen-one.spec.ts
       baz-screen-two/
         baz-screen-two.component.ts
@@ -219,87 +263,134 @@ features/
         baz-screen-two.spec.ts
 
 ```
-### Notes — implementation guidance
-
-- NgRx placement
-  - Keep all feature store artifacts in a `store/` folder inside the feature: `actions`, `effects`, `reducer`, `selectors`.
-  - Name files consistently (e.g. `foo.actions.ts`, `foo.effects.ts`, `foo.reducer.ts`, `foo.selectors.ts`) so reviewers instantly know where to look.
-  - Shared/global state can live in `core/store` or a top-level `store/` if truly cross-cutting.
-
-- VM mappers (placement & shape)
-  - Place VM mappers next to the view they serve (e.g. `foo-page.viewmodel.ts` or `foo-sidebar.viewmodel.ts`).
-  - Define VMs as **types** (e.g. `FooPageVM`, `FooSidebarVM`) since they're pure data containers.
-  - Use `readonly` properties to emphasize immutability.
-  - Export a single pure function like `mapToFooPageVM(input): FooPageVM`. No DI, no side-effects, deterministic outputs, safe defaults.
-  - Unit-test these mappers thoroughly — they are the highest-ROI tests.
-
-- Component-local UI state
-  - Keep UI-only state local to the component using signals (`signal`, `computed`). Expose a `readonly vm = computed(...)` to the template.
-  - If multiple sibling components share ephemeral UI state, consider a small colocated signal/service; only elevate to NgRx when state needs global coordination, persistence, or cross-feature consumption.
-
-- Component + ViewModel pattern
-  - Components handle UI state via signals and delegate domain state to NgRx via `selectSignal`.
-  - Pure ViewModel mapper functions transform raw state into display-ready data structures.
-  - This approach keeps components focused on UI concerns while making business logic easily testable.
-
-- Testing & review ergonomics
-  - Prioritise: VM mapper tests > effects tests > light component tests.
-  - Keep action names and folder layout explicit — this pays back in faster, more reliable PR reviews.
-
-These rules aim for predictability: small, colocated pieces with clear responsibilities make code easier to read, review, and refactor.
 
 
+## Managing dependencies between feature modules
 
-## Routing Pattern (Dispatch Actions on Enter, No Blocking)
+The entry point for a feature module is typically a `routes.ts` file that defines the routes for the feature. This will be the case unless the feature is purely a library of components/services/utilities with no routes of its own.
 
-Facilitating UX flow over strict data guarantees at route time.
+In a more advanced scenario, the entry point could be an `index.ts` that exports public APIs of the feature module, optionally enforced by additional tools. This is a good way of controlling and making explicit what can be imported from where within your application but requires some additional setup and discipline.
 
-Routes activate immediately, actions dispatched to load data, effects handle fetching and errors.
+Without an explicit export approach via `index.ts` and additional tooling, the assumption is that sub-optimal coupling through imports will be avoided by code reviews and developer discipline. This isn't as hard as it sounds; with clear action names, folder structures, and well-defined responsibilities for each piece of code, it's usually obvious when something is being imported from the wrong place.
 
-Views/screens should handle loading/error states gracefully.
-
-This ensures that for the 99% of situations where users do have permission to access the page they are navigating to, the experience is fast and fluid with the application responding immediately to user input.
-
-See below for example of routes.ts with two imagined features `foo-feature` and `baz-feature` - with `baz-feature` having a dependency on `foo-feature`.
+In either case, the ideal state with feature modules is that they are as decoupled from each other as possible. A good litmus test is to delete a feature module entirely from the file system and see what breaks in the build. Ideally, the only breakages should be in upstream `routes.ts` files that were trying to lazy-load that feature.
 
 
-```typescript
-// features/foo-feature/routes.ts
+### Lazy-loading primer and approach
+
+Lazy-loading is a design pattern that allows you to load feature modules on demand, rather than at application startup. This can significantly improve the initial load time of your application, as only the necessary code is loaded upfront.
+
+In Angular, lazy-loading is typically achieved using the Angular Router. By defining routes for your feature modules, you can instruct the router to load the module only when the user navigates to that route.
+
+To implement lazy-loading, you need to follow these steps:
+
+1. **Create a feature module**: Generate a new module for your feature using the Angular CLI.
+
+2. **Define routes**: In the feature module, define the routes for the components that belong to that feature.
+
+3. **Configure lazy-loading**: In the main application routing module, configure the router to load the feature module lazily using the `loadChildren` property.
+
+4. **Optimize loading**: Use techniques like route preloading and code splitting to further optimize the loading of your feature modules.
+
+To get the best of both worlds, i.e. fast initial load time and responsive navigation, it's recommended to combine lazy-loading with route preloading strategies. This way, while the initial load is kept minimal, other feature modules can be loaded in the background after the app has started, ensuring that when the user navigates to those features, they load quickly. This is done like so:
+
+```ts
+import { provideRouter, PreloadAllModules } from '@angular/router';
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(
+      appRoutes,
+      { preloadingStrategy: PreloadAllModules }
+    ),
+  ],
+};
+```
+
+### Lazy-loading NgRx stores
+
+Feature modules can have an NgRx store to handle state management. If they do, the store artifacts (actions, effects, reducer, selectors, adapters) should live in a `store/` folder within the feature module. e.g.
+
+```
+store/
+  foo-feature.adapters.ts
+  foo-feature.actions.ts
+  foo-feature.effects.ts
+  foo-feature.reducer.ts
+  foo-feature.selectors.ts
+```
+
+Two approaches to lazy-loading feature stores.
+
+#### ❌ Eager approach: register all features up-front
+
+In this model, *all* feature reducers and effects are registered during application bootstrap via `app.config.ts`, regardless of whether the user ever navigates to those features.
+
+```ts
+// app.config.ts
+import { ApplicationConfig } from '@angular/core';
+import { provideStore } from '@ngrx/store';
+import { provideEffects } from '@ngrx/effects';
+
+import { fooFeature } from '@features/foo/store/foo.reducer';
+import { FooEffects } from '@features/foo/store/foo.effects';
+
+import { barFeature } from '@features/bar/store/bar.reducer';
+import { BarEffects } from '@features/bar/store/bar.effects';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideStore({
+      [fooFeature.name]: fooFeature.reducer,
+      [barFeature.name]: barFeature.reducer,
+    }),
+    provideEffects(
+      FooEffects,
+      BarEffects,
+    ),
+  ],
+};
+```
+
+#### ✅ Recommended approach: lazy-load feature stores
+
+In a standalone-first architecture, the root application provides only the root store and root effects.
+Each feature owns its NgRx wiring and registers it when its route is lazy-loaded.
+
+```ts
+// baz-feature/routes.ts
+import { provideStoreFeature } from '@ngrx/store';
+import { provideEffects } from '@ngrx/effects';
+
+import { bazFeature } from './store/baz.reducer';
+import { BazEffects } from './store/baz.effects';
 
 export const routes = [
   {
-    path: 'foo-feature',
-    resolve: [() => inject(Store).dispatch(FooFeatureActions.entered())],
-    children: [
-      {
-        path: 'baz-feature',
-        loadChildren: () => import('../baz-feature/routes').then(m => m.routes),
-      },
-      // ...
+    path: '',
+    component: BazComponent,
+    providers: [
+      provideStoreFeature(bazFeature.name, bazFeature.reducer),
+      provideEffects(BazEffects),
     ],
   },
 ];
 ```
 
-
-```typescript
-// features/baz-feature/routes.ts
-
-export const routes = [
-  {
-    path: ':id',
-    component: BazPageComponent,
-    resolve: [() => inject(Store).dispatch(BazActions.entered())],
-  },
-];
-```
-
-> These are "enter hooks", not data resolvers; effect idempotency makes this safe.
-
-TODO: More context / explanation around this pattern.
+> Note: The lazy-loaded approach doesn't replace the root store. The root store can and should hold global state that is relevant across the entire application, such as authentication status, user profile, or application settings.
 
 
-## Component Pattern (Signals + NgRx selectSignal + Pure VM Mapping)
+
+## Viewmodel Pattern (Signals + NgRx selectSignal + Pure VM Mapping)
+
+
+TODO: Rewrite from this point with new approach...
+
+A viewmodel is a data structure that represents the state of a UI component or screen in a way that is optimized for rendering. It typically contains all the data and state needed to render the UI, as well as any derived or computed values that are needed for display.
+
+In this architecture, viewmodels are implemented using Angular Signals and NgRx's `selectSignal` to derive state from the store. The viewmodel is exposed to the component template via a `readonly vm = computed(...)` property.
+
+
+
 
 ### foo-sidebar.component.ts
 
@@ -402,6 +493,87 @@ The pure mapper approach strikes the right balance for most applications:
 The facade pattern addresses a theoretical concern (NgRx lock-in) that rarely materializes in practice, while adding real complexity that impacts day-to-day development.
 
 
+
+
+### Notes — implementation guidance
+
+- NgRx placement
+  - Keep all feature store artifacts in a `store/` folder inside the feature: `actions`, `effects`, `reducer`, `selectors`.
+  - Name files consistently (e.g. `foo.actions.ts`, `foo.effects.ts`, `foo.reducer.ts`, `foo.selectors.ts`) so reviewers instantly know where to look.
+  - Shared/global state can live in `core/store` or a top-level `store/` if truly cross-cutting.
+
+- VM mappers (placement & shape)
+  - Place VM mappers next to the view they serve (e.g. `foo-page.viewmodel.ts` or `foo-sidebar.viewmodel.ts`).
+  - Define VMs as **types** (e.g. `FooPageVM`, `FooSidebarVM`) since they're pure data containers.
+  - Use `readonly` properties to emphasize immutability.
+  - Export a single pure function like `mapToFooPageVM(input): FooPageVM`. No DI, no side-effects, deterministic outputs, safe defaults.
+  - Unit-test these mappers thoroughly — they are the highest-ROI tests.
+
+- Component-local UI state
+  - Keep UI-only state local to the component using signals (`signal`, `computed`). Expose a `readonly vm = computed(...)` to the template.
+  - If multiple sibling components share ephemeral UI state, consider a small colocated signal/service; only elevate to NgRx when state needs global coordination, persistence, or cross-feature consumption.
+
+- Component + ViewModel pattern
+  - Components handle UI state via signals and delegate domain state to NgRx via `selectSignal`.
+  - Pure ViewModel mapper functions transform raw state into display-ready data structures.
+  - This approach keeps components focused on UI concerns while making business logic easily testable.
+
+- Testing & review ergonomics
+  - Prioritise: VM mapper tests > effects tests > light component tests.
+  - Keep action names and folder layout explicit — this pays back in faster, more reliable PR reviews.
+
+These rules aim for predictability: small, colocated pieces with clear responsibilities make code easier to read, review, and refactor.
+
+
+## Routing Pattern (Dispatch Actions on Enter, No Blocking)
+
+Facilitating UX flow over strict data guarantees at route time.
+
+Routes activate immediately, actions dispatched to load data, effects handle fetching and errors.
+
+Views/screens should handle loading/error states gracefully.
+
+This ensures that for the 99% of situations where users do have permission to access the page they are navigating to, the experience is fast and fluid with the application responding immediately to user input.
+
+See below for example of routes.ts with two imagined features `foo-feature` and `baz-feature` - with `baz-feature` having a dependency on `foo-feature`.
+
+
+```typescript
+// features/foo-feature/routes.ts
+
+export const routes = [
+  {
+    path: 'foo-feature',
+    resolve: [() => inject(Store).dispatch(FooFeatureActions.entered())],
+    children: [
+      {
+        path: 'baz-feature',
+        loadChildren: () => import('../baz-feature/routes').then(m => m.routes),
+      },
+      // ...
+    ],
+  },
+];
+```
+
+
+```typescript
+// features/baz-feature/routes.ts
+
+export const routes = [
+  {
+    path: ':id',
+    component: BazPageComponent,
+    resolve: [() => inject(Store).dispatch(BazActions.entered())],
+  },
+];
+```
+
+> These are "enter hooks", not data resolvers; effect idempotency makes this safe.
+
+TODO: More context / explanation around this pattern.
+
+This pattern leverages Angular's router to dispatch actions when a route is entered, allowing for a more fluid user experience. By dispatching actions on route entry, we can initiate data loading or other side effects without blocking the navigation. This is particularly useful for scenarios where we want to show a loading state while the necessary data is being fetched.
 
 # TODO: MOVE NgRx Best Practice to separate doc
 
