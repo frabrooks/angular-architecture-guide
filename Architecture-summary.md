@@ -182,13 +182,13 @@ The main application features, each in its own folder. This is where the bulk of
 
 ## **What is a feature?**
 
-It's worth pinning down what the 'feature' in `/features` means here. The *feature* in `/features` refers to a unit of code organization that groups related functionality together; a feature *module*. A feature module doesn't necessarily equate to a a *product* feature as it might exist in the minds of the users or the business analysts. A feature in that sense will often require a lot of code, multiple screens, complex user flows.
+It's worth pinning down what the 'feature' in `/features` means here. The *feature* in `/features` refers to a unit of code organization that groups related functionality together; a feature *module*. A feature module doesn't necessarily equate to a a *product* feature as it might exist in the minds of the users or the business analysts. A feature in that sense will often require a lot of code, multiple screens, complex user flows. Often our job and value add as developers is to figure out how a product feature should be broken down into one or more feature modules.
 
 Sometimes a feature module will neatly encapsulate all the code for a specific product feature, other times multiple feature *modules* will work together to implement a *product* feature or larger user journey or business capability. In general, all feature modules will be dependent on (free to import from) `core/`, `consts/`, `api/`, `shared/` and `types/` but feature modules should avoid depending on each other unless absolutely necessary.
 
-When it comes to organizing product features into feature modules, there are two semi-competing instincts, Cohesion - stuff that changes together, should stay together - and the goal that each feature be kept small to aid in maintainability and improve the value of the lazy-loading of bundles/chunks.
+When deciding where to draw the line, there are two semi-competing principles, the cohesion principle - stuff that changes together, should stay together - and the principle that each feature be kept small to aid in maintainability, re-useability, and to improve the value of the lazy-loading of bundles/chunks.
 
-Cohesion suggests grouping code more tightly, while the goal of lazy-loading suggests keeping features smaller and more numerous. There's no definitive right answer here, it's where judgement comes in. In general, strive for clarity and maintainability over rigid adherence to either principle.
+Cohesion suggests grouping code more tightly, while modularity suggests keeping features smaller and more numerous. There's no definitive right answer here, it's where judgement comes in. In general, strive for clarity and maintainability over rigid adherence to either principle.
 
 
 > In high-velocity projects/teams or projects that have implemented continous delivery & deployment, lazy-loaded feature modules in tandem with run-time feature flags provide a valuable way to reduce risk of changes. You can duplicate an entire feature module, renaming the clone, and creating a 'v2' route (a lot like BE APIs will do) and redirect between the new and the old routes according to flag configuration. The result being that refactors or experimental features can be merged and then tested at a later time when QA capacity is available.
@@ -198,7 +198,7 @@ Cohesion suggests grouping code more tightly, while the goal of lazy-loading sug
 
 ## Structure of a feature module
 
-Example structure within `features/` with two example features:
+Example structure within `features/` with two example features (foo-feature and baz-feature):
 
 ```
 features/
@@ -238,6 +238,11 @@ features/
       baz-feature.effects.ts
       baz-feature.reducer.ts
       baz-feature.selectors.ts
+
+    // Extend the domain model with UI only state if required (e.g. isSelected, isExpanded, etc.)
+    // e.g. `export type BazItemVM = BazItem & { isSelected: boolean; isExpanded: boolean };`
+    types/
+      baz.model.ts
     
     // Note: only one component, so we don't need a /baz-sidebar folder as no further nesting needed
     component/
@@ -269,11 +274,11 @@ features/
 
 The entry point for a feature module is typically a `routes.ts` file that defines the routes for the feature. This will be the case unless the feature is purely a library of components/services/utilities with no routes of its own.
 
-In a more advanced scenario, the entry point could be an `index.ts` that exports public APIs of the feature module, optionally enforced by additional tools. This is a good way of controlling and making explicit what can be imported from where within your application but requires some additional setup and discipline.
+In a more advanced scenario, the entry point could be an `index.ts` that exports public APIs of the feature module, with the option for additional tools that prevent importing from outside the `index.ts`. This is a good way of explicitly controlling what can be imported from where within your application but requires some additional setup and discipline.
 
-Without an explicit export approach via `index.ts` and additional tooling, the assumption is that sub-optimal coupling through imports will be avoided by code reviews and developer discipline. This isn't as hard as it sounds; with clear action names, folder structures, and well-defined responsibilities for each piece of code, it's usually obvious when something is being imported from the wrong place.
+Without an explicit export approach via `index.ts`, the assumption is that sub-optimal coupling through imports will be avoided by code reviews and developer discipline. This isn't as hard as it sounds; with clear action names, folder structures, and well-defined responsibilities for each piece of code, it's usually obvious when something is being imported from the wrong place or when something needs to be moved to `core/` or `shared/`.
 
-In either case, the ideal state with feature modules is that they are as decoupled from each other as possible. A good litmus test is to delete a feature module entirely from the file system and see what breaks in the build. Ideally, the only breakages should be in upstream `routes.ts` files that were trying to lazy-load that feature.
+In either case, the ideal state with feature modules is that they are as decoupled from each other as possible. A good litmus test is to delete a feature module entirely from the file system and see what breaks in the build. Ideally, the only breakages should be in an upstream `routes.ts` file(s) (possibly `app.routes.ts`) that were trying to lazy-load that feature.
 
 
 ### Lazy-loading primer and approach
@@ -380,85 +385,12 @@ export const routes = [
 
 
 
-## Viewmodel Pattern (Signals + NgRx selectSignal + Pure VM Mapping)
+## Component Viewmodel Pattern (Signals + NgRx selectSignal + Pure VM Mapping)
 
-
-TODO: Rewrite from this point with new approach...
 
 A viewmodel is a data structure that represents the state of a UI component or screen in a way that is optimized for rendering. It typically contains all the data and state needed to render the UI, as well as any derived or computed values that are needed for display.
 
 In this architecture, viewmodels are implemented using Angular Signals and NgRx's `selectSignal` to derive state from the store. The viewmodel is exposed to the component template via a `readonly vm = computed(...)` property.
-
-
-
-
-### foo-sidebar.component.ts
-
-```typescript
-@Component({ /* ... */ })
-export class FooSidebarComponent {
-  private readonly store = inject(Store);
-
-  // Domain state (from NgRx as signals)
-  private readonly foosS = this.store.selectSignal(selectFoos);
-  private readonly selectedIdS = this.store.selectSignal(selectSelectedFooId);
-
-  // Local UI-only state (signals)
-  private readonly searchTextS = signal('');
-  private readonly expandedS = signal(true);
-
-  // View contract for template
-  readonly vm = computed(() =>
-    mapToFooSidebarVM({
-      foos: this.foosS(),
-      selectedId: this.selectedIdS(),
-      searchText: this.searchTextS(),
-      expanded: this.expandedS(),
-    })
-  );
-
-  // UI intents
-  setSearch(text: string) { this.searchTextS.set(text); }
-  toggleExpanded() { this.expandedS.update(v => !v); }
-
-  // Domain intents (dispatch)
-  select(id: string) { this.store.dispatch(FooUiActions.selected({ id })); }
-}
-```
-
-### foo-sidebar.viewmodel.ts (Pure)
-
-```typescript
-export type FooSidebarVM = {
-  readonly items: readonly FooItem[];
-  readonly selectedId: string | null;
-  readonly isExpanded: boolean;
-  readonly filteredItems: readonly FooItem[];
-  readonly hasResults: boolean;
-};
-
-export function mapToFooSidebarVM(input: {
-  foos: Foo[];
-  selectedId: string | null;
-  expanded: boolean;
-  searchText: string;
-}): FooSidebarVM {
-  // pure mapping; safe defaults; never throw
-  const filteredItems = input.foos.filter(foo => 
-    foo.name.toLowerCase().includes(input.searchText.toLowerCase())
-  );
-  
-  return {
-    items: input.foos,
-    selectedId: input.selectedId,
-    isExpanded: input.expanded,
-    filteredItems,
-    hasResults: filteredItems.length > 0,
-  };
-}
-```
-
-#### **Viewmodel Approaches (Compare and Contrast)**
 
 When it comes to handling viewmodels and component state management, there are several approaches you might encounter:
 
@@ -492,6 +424,176 @@ The pure mapper approach strikes the right balance for most applications:
 
 The facade pattern addresses a theoretical concern (NgRx lock-in) that rarely materializes in practice, while adding real complexity that impacts day-to-day development.
 
+
+### foo-sidebar.component.ts
+
+
+Note how the component is focused on UI state and interactions, while the viewmodel handles all the logic of transforming store data into display-ready data. The component is also free to have its own local state via signals, which can be used for things like search text or expanded/collapsed state that are purely UI concerns and don't need to be shared across components.
+
+When this is done well, the component code becomes very straightforward and easy to read.
+
+
+```typescript
+
+@Component({ /* ... */ })
+export class FooSidebarComponent {
+  private readonly store = inject(Store);
+  
+  // Local component state, think carefully and confirm that ONLY this component needs it.
+  // i.e. a typeahead search text or an expanded/collapsed state.
+  // Sometimes you might have 'UI' state that is nonetheless needed across mutliple components, in which
+  // case best to extend the domain type in /feature/_types/foo.model.ts and manage it in the store.
+  private readonly searchTextS = signal('');
+  private readonly expandedS = signal(true);
+
+  readonly vm = fooSidebarVM(this.store, this.searchTextS, this.expandedS);
+
+  constructor() {
+    effect(() => {
+      // Example of a side effect that runs whenever the viewmodel changes. Use sparingly.
+      // Ask yourself if NgRx effects or component lifecycle hooks would be more appropriate.
+      console.log('FooSidebarComponent VM changed:', this.vm());
+    });
+  }
+
+  // UI intents
+  setSearch(text: string) { 
+    this.searchTextS.set(text); 
+  }
+
+  toggleExpanded() { 
+    this.expandedS.update(v => !v); 
+  }
+
+  // Domain intents (store dispatch)
+  textInputChange(text: string) {
+    this.store.dispatch(FooActions.fooInputValueChange({ text }));
+  }
+
+  select(id: string) { 
+    this.store.dispatch(FooActions.fooSelected({ id })); 
+  }
+
+  sendMessageToSelectedFoo() {
+    this.store.dispatch(FooActions.sendMessageToSelectedFooButtonClick());
+  }
+
+}
+
+```
+
+
+### foo-sidebar.viewmodel.ts
+
+This is 'pure' code, unit-testable, no side effects, same input same output every time.
+
+Three things inside this file:
+
+1. The ViewModel type definition, which defines the contract between the view and the rest of the application.
+   Use the ViewModel type to add clarity and intention, making code easier to read and maintain.
+   The most important thing is aiming to have the 'contract' be readable from both sides, so that we're never asking the question(s)
+    
+    From view model side: "What will the component/view do with this data or flag?"
+    
+    From view side: "What am I supposed to do with this data or flag?"
+
+2. The mapToVM mapping function (e.g. mapToFooSidebarVM), which transforms the raw data from the store into the ViewModel.
+
+ * mapToVM function. This is where you take in all the relevant data and signals and compute the view model.
+ * 
+ * It's where you can compute derived data and handle any necessary transformations but if you find this function
+ * getting complex consider if some of it can be moved to the store selectors instead.
+ * 
+ * Be very careful with these mapping functions. One null reference error will break the entire component.
+ * Strict typing and tsconfig settings like "strictNullChecks" are your friends. Code linting and SonarQube rules
+ * can help catch potential issues early as can time spent on writing unit tests for these functions.
+ * 
+ * mapToVM functions like this are great for unit testing, think about how many meaningful unit tests you can
+ * write for the imagined function below.
+ *
+ * Used inside the component as we almost always need to take in a reference to the store and possibly other signals that are relevant to the component's local UI state.
+
+3. The VM Signal function, which combines the store data and local component state into a single reactive object.
+
+ * VM function that's used inside the component as we almost always need to take in a reference to the
+ * store and possibly other signals that are relevant to the component's local UI state.
+ * Might need references to other services as well.
+
+ */
+
+
+```typescript
+/**
+  * ViewModel type definition.
+ */
+export type FooSidebarVM = {
+  readonly showLoadingState: boolean;
+  readonly showFooMessageInput: boolean;
+  readonly fooMessageInputValue: string;
+  readonly foosToDisplay: FooItemVM[];
+  readonly showSendMessageButton: boolean;
+  readonly disableSendMessageButton: boolean;
+  readonly errorMessageToShow: string | null;
+};
+
+
+/**
+ * mapToVM function. Pure mapping function that transforms raw state into the ViewModel.
+ */
+export function mapToFooSidebarVM(input: {
+  permissions: string[];
+  foos: Foo[] | undefined;
+  inputText: string;
+  selectedId: string | null;
+  expanded: boolean;
+  searchText: string;
+}): FooSidebarVM {
+  
+  // It's often worth creating intermediate variables for complex conditions to improve readability.
+  const canSendMessage = input.permissions.includes('can_send_message');
+  const hasFoos = !!input.foos?.length;
+
+  return {
+    showLoadingState: input.foos === undefined,
+    showFooMessageInput: canSendMessage && hasFoos,
+    fooMessageInputValue: input.inputText,
+    foosToDisplay: (input.foos ?? []).map(foo => ({
+      id: foo.id,
+      name: foo.name,
+      description: foo.description ?? '',
+      status: foo.status,
+      isSelected: foo.id === input.selectedId
+    })).filter(foo => foo.name.toLowerCase().includes(input.searchText.toLowerCase())),
+    showSendMessageButton: canSendMessage && hasFoos,
+    disableSendMessageButton: !input.selectedId || input.inputText.trim() === '',
+    errorMessageToShow: !hasFoos ? 'An error occurred.' : null
+  };
+}
+
+/**
+ * VM Signal function.
+ */
+export function fooSidebarVM(store: Store, searchText: Signal<string>, expanded: Signal<boolean>): Signal<FooSidebarVM> {
+
+  // Domain state (from NgRx as signals)
+  const permissions: Signal<string[]> = store.selectSignal(FromCore.selectPermissions);
+  const foos: Signal<Foo[] | null | undefined> = store.selectSignal(FromFoo.selectFoos);
+  const inputText: Signal<string> = store.selectSignal(FromFoo.selectFooInputText);
+  const selectedId: Signal<string | null> = store.selectSignal(FromFoo.selectSelectedFooId);
+
+  return computed(() => {
+    return mapToFooSidebarVM({
+      permissions: permissions(),
+      foos: foos(),
+      inputText: inputText(),
+      selectedId: selectedId(),
+      expanded: expanded(),
+      searchText: searchText()
+    });
+  });
+}
+
+```
 
 
 
@@ -563,17 +665,24 @@ export const routes = [
 export const routes = [
   {
     path: ':id',
-    component: BazPageComponent,
-    resolve: [() => inject(Store).dispatch(BazActions.entered())],
+    component: BazFeaturePageComponent,
+    resolve: [() => inject(Store).dispatch(BazFeatureActions.entered())],
   },
 ];
 ```
 
 > These are "enter hooks", not data resolvers; effect idempotency makes this safe.
 
+
 TODO: More context / explanation around this pattern.
 
 This pattern leverages Angular's router to dispatch actions when a route is entered, allowing for a more fluid user experience. By dispatching actions on route entry, we can initiate data loading or other side effects without blocking the navigation. This is particularly useful for scenarios where we want to show a loading state while the necessary data is being fetched.
+
+## Where do services fit in?
+
+Complex logic that doesn't fit well in effects or selectors can be encapsulated in services. These services can be injected into effects or components as needed. The key is to keep services focused on a specific domain or area of functionality, and to avoid putting stateful logic in services where possible. Services should be stateless and reusable, while stateful logic should live in the store or component signals.
+
+
 
 # TODO: MOVE NgRx Best Practice to separate doc
 

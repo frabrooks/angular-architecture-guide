@@ -17,7 +17,10 @@ import { FormsModule } from '@angular/forms';
 export class FooSidebarComponent {
   private readonly store = inject(Store);
   
-  // // Local UI-only state (signals)
+  // Local component state, think carefully and confirm that ONLY this component needs it.
+  // i.e. a typeahead search text or filter text for a long list.
+  // Sometimes you might have 'UI' state that is nonetheless needed across mutliple components, in which
+  // case best to extend the domain type in /feature/_types/foo.model.ts and manage it in the store.
   private readonly searchTextS = signal('');
   private readonly expandedS = signal(true);
 
@@ -25,12 +28,10 @@ export class FooSidebarComponent {
 
   constructor() {
     effect(() => {
+      // Example of a side effect that runs whenever the viewmodel changes. Use sparingly.
+      // Ask yourself if NgRx effects or component lifecycle hooks would be more appropriate.
       console.log('FooSidebarComponent VM changed:', this.vm());
     });
-  }
-
-  textInputChange(text: string) {
-    this.store.dispatch(FooActions.updateFooInput({ text }));
   }
 
   // UI intents
@@ -42,8 +43,17 @@ export class FooSidebarComponent {
     this.expandedS.update(v => !v); 
   }
 
-  // Domain intents (dispatch)
-  select(id: string) { 
-    this.store.dispatch(FooActions.selected({ id })); 
+  // Domain intents (store dispatch)
+  fooMessageInputChange(text: string) {
+    this.store.dispatch(FooActions.fooMessageInputChange({ text }));
   }
+
+  select(id: string) { 
+    this.store.dispatch(FooActions.fooSelected({ id })); 
+  }
+
+  sendMessageToSelectedFoo() {
+    this.store.dispatch(FooActions.sendMessageToSelectedFooButtonClick());
+  }
+
 }
