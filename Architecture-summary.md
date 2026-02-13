@@ -80,15 +80,27 @@ The goals:
 
 Top level structure (i.e. app/src/ contents):
 ```
+@consts/
+@types/
 api/
 core/
-consts/
 features/
 shared/
-types/
 ```
 
 Let's describe each of the above in turn:
+
+
+### **@consts/**
+
+What it says on the tin: application-wide constants, enums, literal types, etc.
+
+May be fairly sparsely populated or contain all the constants for the app, depending on whether constants are centralized or collocated within the feature modules that use them.
+
+
+### **@types/**
+
+Type definitions and interfaces that are used throughout the application. Similar to @consts/, may be sparsely populated or contain many types depending on your approach to centralization vs collocation.
 
 ### **api/**
 
@@ -158,21 +170,11 @@ So only put code here that is either essential for bootstrapping the app or is v
 Or generic screens for handling app-level concerns like maintenance mode, global error display, 404 page etc.
 
 
-### **consts/**
-
-What it says on the tin: application-wide constants, enums, literal types, etc.
-
-May be fairly sparsely populated or contain all the constants for the app, depending on whether constants are centralized or collocated within the feature modules that use them.
-
-
 ### **shared/**
 
-Code that is shared across multiple features, such as utility functions, components, and services.
+Code that is shared across multiple features, such as utility functions, components, and services. Code in here should be written to be as general as possible for your org and avoid references to specific domain entities for the application at hand. It should be possible and reasonable to lift and shift code here into a shared package to be used in other applications within your org if needed.
 
 
-### **types/**
-
-Type definitions and interfaces that are used throughout the application. Similar to consts/, may be sparsely populated or contain many types depending on your approach to centralization vs collocation.
 
 
 ### **features/**
@@ -184,7 +186,7 @@ The main application features, each in its own folder. This is where the bulk of
 
 It's worth pinning down what the 'feature' in `/features` means here. The *feature* in `/features` refers to a unit of code organization that groups related functionality together; a feature *module*. A feature module doesn't necessarily equate to a a *product* feature as it might exist in the minds of the users or the business analysts. A feature in that sense will often require a lot of code, multiple screens, complex user flows. Often our job and value add as developers is to figure out how a product feature should be broken down into one or more feature modules.
 
-Sometimes a feature module will neatly encapsulate all the code for a specific product feature, other times multiple feature *modules* will work together to implement a *product* feature or larger user journey or business capability. In general, all feature modules will be dependent on (free to import from) `core/`, `consts/`, `api/`, `shared/` and `types/` but feature modules should avoid depending on each other unless absolutely necessary.
+Sometimes a feature module will neatly encapsulate all the code for a specific product feature, other times multiple feature *modules* will work together to implement a *product* feature or larger user journey or business capability. In general, all feature modules will be dependent on (free to import from) `core/`, `@consts/`, `api/`, `shared/` and `@types/` but feature modules should avoid depending on each other unless absolutely necessary.
 
 When deciding where to draw the line, there are two semi-competing principles, the cohesion principle - stuff that changes together, should stay together - and the principle that each feature be kept small to aid in maintainability, re-useability, and to improve the value of the lazy-loading of bundles/chunks.
 
@@ -241,7 +243,7 @@ features/
 
     // Extend the domain model with UI only state if required (e.g. isSelected, isExpanded, etc.)
     // e.g. `export type BazItemVM = BazItem & { isSelected: boolean; isExpanded: boolean };`
-    types/
+    @types/
       baz.model.ts
     
     // Note: only one component, so we don't need a /baz-sidebar folder as no further nesting needed
@@ -278,10 +280,10 @@ In a more advanced scenario, the entry point could be an `index.ts` that exports
 
 Without an explicit export approach via `index.ts`, the assumption is that sub-optimal coupling through imports will be avoided by code reviews and developer discipline. This isn't as hard as it sounds; with clear action names, folder structures, and well-defined responsibilities for each piece of code, it's usually obvious when something is being imported from the wrong place or when something needs to be moved to `core/` or `shared/`.
 
-In either case, the ideal state with feature modules is that they are as decoupled from each other as possible. A good litmus test is to delete a feature module entirely from the file system and see what breaks in the build. Ideally, the only breakages should be in an upstream `routes.ts` file(s) (possibly `app.routes.ts`) that were trying to lazy-load that feature.
+In either case, the ideal state with feature modules is that they are as decoupled from each other as possible. A good litmus test is to delete a feature module folder entirely from the file system and see what breaks in the build. Ideally, the only breakages should be in an upstream `routes.ts` file(s) - possibly `app.routes.ts` - that were trying to lazy-load that feature.
 
 
-### Lazy-loading primer and approach
+## Lazy-loading Approach
 
 Lazy-loading is a design pattern that allows you to load feature modules on demand, rather than at application startup. This can significantly improve the initial load time of your application, as only the necessary code is loaded upfront.
 
@@ -311,9 +313,9 @@ export const appConfig: ApplicationConfig = {
 };
 ```
 
-### Lazy-loading NgRx stores
+## Lazy-loading NgRx stores
 
-Feature modules can have an NgRx store to handle state management. If they do, the store artifacts (actions, effects, reducer, selectors, adapters) should live in a `store/` folder within the feature module. e.g.
+Feature modules can have an NgRx store to handle state management; see the NgRx best practice guide if you need a primer. If they do, the store artifacts (actions, effects, reducer, selectors, adapters) should live in a `store/` folder within the feature module. e.g.
 
 ```
 store/
@@ -324,7 +326,7 @@ store/
   foo-feature.selectors.ts
 ```
 
-Two approaches to lazy-loading feature stores.
+There are two approaches to registering feature stores with the root.
 
 #### ❌ Eager approach: register all features up-front
 
@@ -358,7 +360,7 @@ export const appConfig: ApplicationConfig = {
 
 #### ✅ Recommended approach: lazy-load feature stores
 
-In a standalone-first architecture, the root application provides only the root store and root effects.
+In a standalone-first, feature-driven architecture, the root application provides only the root store and root effects.
 Each feature owns its NgRx wiring and registers it when its route is lazy-loaded.
 
 ```ts
@@ -381,261 +383,46 @@ export const routes = [
 ];
 ```
 
-> Note: The lazy-loaded approach doesn't replace the root store. The root store can and should hold global state that is relevant across the entire application, such as authentication status, user profile, or application settings.
+> Note: The lazy-loaded approach doesn't replace the root/core store. The root store can and should hold global state that is relevant across the entire application, such as authentication status, user profile, or application settings.
 
+## Route Driven Data
 
+What do I want to say in this section?
 
-## Component Viewmodel Pattern (Signals + NgRx selectSignal + Pure VM Mapping)
+I guess, start with introducing the principal. Somehow we need to control the data loading. Whatever strategy we choose, we want a system that gives us as FE developers control and flexibility around how that data is retained and how often it is reloaded. For example, sometimes you have a page foo-page at route /foo with a link to a foo-sub-page at route foo/sub-page.
 
+Sometimes we want to reload the data when navigating in and out of foo-sub-page, sometimes we may deem it unnecessary to reload the data and would prefer a snappier experience for users navigating between foo-page and foo-sub-page.
 
-A viewmodel is a data structure that represents the state of a UI component or screen in a way that is optimized for rendering. It typically contains all the data and state needed to render the UI, as well as any derived or computed values that are needed for display.
+The second important desire is facilitating UX flow over strict data guarantees at route time. We want the UI to be as responsive and fluid as possible.
 
-In this architecture, viewmodels are implemented using Angular Signals and NgRx's `selectSignal` to derive state from the store. The viewmodel is exposed to the component template via a `readonly vm = computed(...)` property.
+Decades of human–computer interaction research show that what matters most for usability is not raw loading time, but how quickly a system responds to user input. Work popularised by Jakob Nielsen and others identifies three broad thresholds: around 100 milliseconds, where responses feel instantaneous and preserve a sense of direct control; around one second, where users notice a delay but generally remain focused; and around ten seconds, where attention reliably breaks. Beyond this point, users disengage, context-switch, and often fail to return to the task quickly. As a result, even small, frequent delays can have a disproportionate impact on productivity, not because of the seconds they consume, but because they disrupt working memory and cognitive flow.
 
-When it comes to handling viewmodels and component state management, there are several approaches you might encounter:
+From this perspective, effective frontend design is primarily about preserving predictability and agency rather than minimising absolute wait time. When an interface reacts immediately—through visual feedback, skeletons, or loading indicators—users maintain confidence that their action has been registered, even if the underlying data takes longer to arrive. Conversely, silent pauses or delayed feedback create uncertainty, which triggers distraction and habitual context-switching (for example, checking a phone or opening another tab). A three-second wait with instant feedback is often perceived as more usable than a one-second freeze with no visible response.
 
-1. **Pure Mapper Functions (Recommended)**
-   - ViewModels are defined as `type` definitions with readonly properties
-   - Pure mapping functions (`mapToFooVM`) transform raw state to display-ready data
-   - Components use `computed()` to call these mappers reactively
-   - **Pros**: Simple, testable, no dependencies, clear separation of concerns
-   - **Cons**: Components directly depend on NgRx store
+In practical terms, this implies prioritising rapid, sub-second UI feedback over strict data guarantees at route or interaction time. For modern web applications, especially SPAs, the goal should be to ensure that every meaningful user action produces visible feedback within roughly 100 milliseconds, even if full data hydration occurs later. This approach supports sustained focus, reduces cognitive friction, and aligns technical architecture with how humans actually perceive and interact with responsive systems.
 
-2. **Facade/Service Pattern**
-   - Introduces a service layer that encapsulates store interactions and exposes observables/signals
-   - Components depend on the facade instead of directly on NgRx
-   - **Pros**: Decouples components from NgRx, easier to swap state management libraries
-   - **Cons**: Additional abstraction layer, more boilerplate, potential for over-engineering
+> Aside: The above is why I think it's unfortunate Angular has async route resolvers and guards because they block the route activation until the data is loaded, which means that users don't get any feedback that their action has been registered until the data is fully loaded. You might think the solution is to simply have discipline and keep those route API calls fast but in practice all API calls are going to be slow sometimes, the 95th percentile response time for most of your API calls is often worse than you think.
 
-3. **Presenter Pattern**
-   - Components delegate all logic to presenter classes that handle both UI state and domain interactions
-   - Presenters often have lifecycle methods and maintain state
-   - **Pros**: Very clean separation, testable business logic
-   - **Cons**: More complex, harder to follow in PR reviews, can lead to over-abstraction
 
-**Why Pure Mapper Functions Win:**
+#### ❌ The ngOnInit approach
 
-The pure mapper approach strikes the right balance for most applications:
-- **Simplicity**: Minimal cognitive overhead, easy to understand
-- **Testability**: Pure functions are trivial to unit test
-- **Performance**: `computed()` provides efficient reactivity
-- **PR Review Friendly**: Clear, explicit transformations are easy to review
-- **Pragmatic**: Embraces the reality that moving away from NgRx is unlikely, and if it happens, modern tooling (including AI) can handle refactoring
+The simplest and most frequently seen approach is to load data in the component's `ngOnInit` lifecycle hook, hopefully using shareReplay to avoid multiple API calls. This is straightforward and works well for simple cases, but it has a couple of drawbacks. Namely:
 
-The facade pattern addresses a theoretical concern (NgRx lock-in) that rarely materializes in practice, while adding real complexity that impacts day-to-day development.
+- in the example above, controlling when and how we reload data becomes clunky. ShareReplay is a common solution to this problem, but it can lead to stale data and doesn't give us fine-grained control over when data is reloaded. We might want to reload data when navigating back to foo-page from foo-sub-page, but not when navigating from foo-page to foo-sub-page. This approach doesn't give us that level of control.
 
+- it forces every sub page to be responsible for loading the data for even its upstream feature modules, i.e. if foo-sub-page is a settings page, it might need to know the state of the users 'foo' object (that the parent feature module /foo also loads and displays) but also an 'allowed-settings' object from a reference API etc. We can't assume that the /foo data is already loaded (as it would be if say stored in a service from the user navigating from /foo to /foo/settings as we expect) as they might be refreshing the page. So we end up in a world where even though /foo-settings is a feature module downstream of /foo that only ever appears under /foo/settings, it still needs to take responsiblity for loading of /foo data in case it's not there.
 
-### foo-sidebar.component.ts
 
+#### ✅ The route-driven approach
 
-Note how the component is focused on UI state and interactions, while the viewmodel handles all the logic of transforming store data into display-ready data. The component is also free to have its own local state via signals, which can be used for things like search text or expanded/collapsed state that are purely UI concerns and don't need to be shared across components.
+With NgRx we can leverage the power of the store to manage data loading more effectively. Instead of relying on individual components to load their own data, we can centralise data fetching logic in effects and use selectors to provide the necessary data to components. This allows us to:
 
-When this is done well, the component code becomes very straightforward and easy to read.
+- Control data loading at a higher level, making it easier to manage when and how data is fetched.
+- Share data between components more easily, reducing the need for each component to load its own data.
+- Simplify the component code, making it easier to reason about and maintain.
 
+We can leverage Angular's router to dispatch actions when a route is entered, allowing for a more fluid user experience. By dispatching actions on route entry, we can initiate data loading or other side effects without blocking the navigation.
 
-```typescript
-
-@Component({ /* ... */ })
-export class FooSidebarComponent {
-  private readonly store = inject(Store);
-  
-  // Local component state, think carefully and confirm that ONLY this component needs it.
-  // i.e. a typeahead search text or an expanded/collapsed state.
-  // Sometimes you might have 'UI' state that is nonetheless needed across mutliple components, in which
-  // case best to extend the domain type in /feature/_types/foo.model.ts and manage it in the store.
-  private readonly searchTextS = signal('');
-  private readonly expandedS = signal(true);
-
-  readonly vm = fooSidebarVM(this.store, this.searchTextS, this.expandedS);
-
-  constructor() {
-    effect(() => {
-      // Example of a side effect that runs whenever the viewmodel changes. Use sparingly.
-      // Ask yourself if NgRx effects or component lifecycle hooks would be more appropriate.
-      console.log('FooSidebarComponent VM changed:', this.vm());
-    });
-  }
-
-  // UI intents
-  setSearch(text: string) { 
-    this.searchTextS.set(text); 
-  }
-
-  toggleExpanded() { 
-    this.expandedS.update(v => !v); 
-  }
-
-  // Domain intents (store dispatch)
-  textInputChange(text: string) {
-    this.store.dispatch(FooActions.fooInputValueChange({ text }));
-  }
-
-  select(id: string) { 
-    this.store.dispatch(FooActions.fooSelected({ id })); 
-  }
-
-  sendMessageToSelectedFoo() {
-    this.store.dispatch(FooActions.sendMessageToSelectedFooButtonClick());
-  }
-
-}
-
-```
-
-
-### foo-sidebar.viewmodel.ts
-
-This is 'pure' code, unit-testable, no side effects, same input same output every time.
-
-Three things inside this file:
-
-1. The ViewModel type definition, which defines the contract between the view and the rest of the application.
-   Use the ViewModel type to add clarity and intention, making code easier to read and maintain.
-   The most important thing is aiming to have the 'contract' be readable from both sides, so that we're never asking the question(s)
-    
-    From view model side: "What will the component/view do with this data or flag?"
-    
-    From view side: "What am I supposed to do with this data or flag?"
-
-2. The mapToVM mapping function (e.g. mapToFooSidebarVM), which transforms the raw data from the store into the ViewModel.
-
- * mapToVM function. This is where you take in all the relevant data and signals and compute the view model.
- * 
- * It's where you can compute derived data and handle any necessary transformations but if you find this function
- * getting complex consider if some of it can be moved to the store selectors instead.
- * 
- * Be very careful with these mapping functions. One null reference error will break the entire component.
- * Strict typing and tsconfig settings like "strictNullChecks" are your friends. Code linting and SonarQube rules
- * can help catch potential issues early as can time spent on writing unit tests for these functions.
- * 
- * mapToVM functions like this are great for unit testing, think about how many meaningful unit tests you can
- * write for the imagined function below.
- *
- * Used inside the component as we almost always need to take in a reference to the store and possibly other signals that are relevant to the component's local UI state.
-
-3. The VM Signal function, which combines the store data and local component state into a single reactive object.
-
- * VM function that's used inside the component as we almost always need to take in a reference to the
- * store and possibly other signals that are relevant to the component's local UI state.
- * Might need references to other services as well.
-
- */
-
-
-```typescript
-/**
-  * ViewModel type definition.
- */
-export type FooSidebarVM = {
-  readonly showLoadingState: boolean;
-  readonly showFooMessageInput: boolean;
-  readonly fooMessageInputValue: string;
-  readonly foosToDisplay: FooItemVM[];
-  readonly showSendMessageButton: boolean;
-  readonly disableSendMessageButton: boolean;
-  readonly errorMessageToShow: string | null;
-};
-
-
-/**
- * mapToVM function. Pure mapping function that transforms raw state into the ViewModel.
- */
-export function mapToFooSidebarVM(input: {
-  permissions: string[];
-  foos: Foo[] | undefined;
-  inputText: string;
-  selectedId: string | null;
-  expanded: boolean;
-  searchText: string;
-}): FooSidebarVM {
-  
-  // It's often worth creating intermediate variables for complex conditions to improve readability.
-  const canSendMessage = input.permissions.includes('can_send_message');
-  const hasFoos = !!input.foos?.length;
-
-  return {
-    showLoadingState: input.foos === undefined,
-    showFooMessageInput: canSendMessage && hasFoos,
-    fooMessageInputValue: input.inputText,
-    foosToDisplay: (input.foos ?? []).map(foo => ({
-      id: foo.id,
-      name: foo.name,
-      description: foo.description ?? '',
-      status: foo.status,
-      isSelected: foo.id === input.selectedId
-    })).filter(foo => foo.name.toLowerCase().includes(input.searchText.toLowerCase())),
-    showSendMessageButton: canSendMessage && hasFoos,
-    disableSendMessageButton: !input.selectedId || input.inputText.trim() === '',
-    errorMessageToShow: !hasFoos ? 'An error occurred.' : null
-  };
-}
-
-/**
- * VM Signal function.
- */
-export function fooSidebarVM(store: Store, searchText: Signal<string>, expanded: Signal<boolean>): Signal<FooSidebarVM> {
-
-  // Domain state (from NgRx as signals)
-  const permissions: Signal<string[]> = store.selectSignal(FromCore.selectPermissions);
-  const foos: Signal<Foo[] | null | undefined> = store.selectSignal(FromFoo.selectFoos);
-  const inputText: Signal<string> = store.selectSignal(FromFoo.selectFooInputText);
-  const selectedId: Signal<string | null> = store.selectSignal(FromFoo.selectSelectedFooId);
-
-  return computed(() => {
-    return mapToFooSidebarVM({
-      permissions: permissions(),
-      foos: foos(),
-      inputText: inputText(),
-      selectedId: selectedId(),
-      expanded: expanded(),
-      searchText: searchText()
-    });
-  });
-}
-
-```
-
-
-
-### Notes — implementation guidance
-
-- NgRx placement
-  - Keep all feature store artifacts in a `store/` folder inside the feature: `actions`, `effects`, `reducer`, `selectors`.
-  - Name files consistently (e.g. `foo.actions.ts`, `foo.effects.ts`, `foo.reducer.ts`, `foo.selectors.ts`) so reviewers instantly know where to look.
-  - Shared/global state can live in `core/store` or a top-level `store/` if truly cross-cutting.
-
-- VM mappers (placement & shape)
-  - Place VM mappers next to the view they serve (e.g. `foo-page.viewmodel.ts` or `foo-sidebar.viewmodel.ts`).
-  - Define VMs as **types** (e.g. `FooPageVM`, `FooSidebarVM`) since they're pure data containers.
-  - Use `readonly` properties to emphasize immutability.
-  - Export a single pure function like `mapToFooPageVM(input): FooPageVM`. No DI, no side-effects, deterministic outputs, safe defaults.
-  - Unit-test these mappers thoroughly — they are the highest-ROI tests.
-
-- Component-local UI state
-  - Keep UI-only state local to the component using signals (`signal`, `computed`). Expose a `readonly vm = computed(...)` to the template.
-  - If multiple sibling components share ephemeral UI state, consider a small colocated signal/service; only elevate to NgRx when state needs global coordination, persistence, or cross-feature consumption.
-
-- Component + ViewModel pattern
-  - Components handle UI state via signals and delegate domain state to NgRx via `selectSignal`.
-  - Pure ViewModel mapper functions transform raw state into display-ready data structures.
-  - This approach keeps components focused on UI concerns while making business logic easily testable.
-
-- Testing & review ergonomics
-  - Prioritise: VM mapper tests > effects tests > light component tests.
-  - Keep action names and folder layout explicit — this pays back in faster, more reliable PR reviews.
-
-These rules aim for predictability: small, colocated pieces with clear responsibilities make code easier to read, review, and refactor.
-
-
-## Routing Pattern (Dispatch Actions on Enter, No Blocking)
-
-Facilitating UX flow over strict data guarantees at route time.
-
-Routes activate immediately, actions dispatched to load data, effects handle fetching and errors.
-
-Views/screens should handle loading/error states gracefully.
-
-This ensures that for the 99% of situations where users do have permission to access the page they are navigating to, the experience is fast and fluid with the application responding immediately to user input.
 
 See below for example of routes.ts with two imagined features `foo-feature` and `baz-feature` - with `baz-feature` having a dependency on `foo-feature`.
 
@@ -671,12 +458,353 @@ export const routes = [
 ];
 ```
 
-> These are "enter hooks", not data resolvers; effect idempotency makes this safe.
+And then in the effects:
+
+```typescript
+// features/foo-feature/store/foo-feature.effects.ts
+
+@Injectable()
+export class FooFeatureEffects {
+  
+  private fooHttpService = inject(FooHttpService);
+  private router = inject(Router);
+  
+  constructor(private actions$: Actions, private store: Store) {}
+
+  loadFooData$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(
+        FooFeatureActions.entered,
+        FooFeatureActions.postFooDataSuccess,
+        // ...other actions that should trigger a reload of foo data
+      ),
+      switchMap(() => {
+        return this.fooHttpService.getFooData().pipe(
+          map(fooData => FooFeatureActions.loadFooDataSuccess({ fooData })),
+          catchError(error => of(FooFeatureActions.loadFooDataFailure({ error })))
+        );
+      })
+    )
+  );
+
+  redirectToAccessDeniedOn403$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(FooFeatureActions.loadFooDataFailure),
+      filter(action => action.error.status === 403),
+      tap(() => this.router.navigate(['/access-denied']))
+    ),
+    { dispatch: false } // Nothing to dispatch, end of action chain.
+  );
+
+}
+```
+
+Or if we only want to fetch the data if it's not already present:
+
+```typescript
+// features/foo-feature/store/foo-feature.effects.ts
+
+@Injectable()
+export class FooFeatureEffects {
+
+  private fooHttpService = inject(FooHttpService);
+
+  constructor(private actions$: Actions, private store: Store) {}
+
+  handleRouteEntry$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(FooFeatureActions.entered),
+      switchMap(() => {
+        return this.store.select(selectFooData).pipe(
+          take(1),
+          map(fooData => {
+            if (!fooData) {
+              return FooFeatureActions.fooDataMissingOnEntry();
+            }
+            return { type: '[Foo Feature] No Action Needed' };
+          })
+        );
+      })
+    )
+  );
+
+  loadFooData$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(
+        FooFeatureActions.fooDataMissingOnEntry,
+        FooFeatureActions.postFooDataSuccess,
+      ),
+      switchMap(() => {
+        return this.fooHttpService.getFooData().pipe(
+          map(fooData => FooFeatureActions.loadFooDataSuccess({ fooData })),
+          catchError(error => of(FooFeatureActions.loadFooDataFailure({ error })))
+        );
+      })
+  );
+
+}
+```
 
 
-TODO: More context / explanation around this pattern.
+The advantage of the above approach is that routes activate immediately, actions are dispatched to load data, effects handle fetching, errors, and redirects etc.
 
-This pattern leverages Angular's router to dispatch actions when a route is entered, allowing for a more fluid user experience. By dispatching actions on route entry, we can initiate data loading or other side effects without blocking the navigation. This is particularly useful for scenarios where we want to show a loading state while the necessary data is being fetched.
+The important thing to remember here is that because the route activates immediately, views/screens should handle loading/error states gracefully as otherwise users might be left staring at a blank page with no feedback for an extended period of time if the API call is slow or fails.
+
+In the event of a page that the user may not be authorised to view, best use a loading spinner or skeleton screen to give immediate feedback that their action has been registered and the app is working on it, and then handle any 403 errors in the effects by redirecting to an access denied page or back to a safe page.
+
+In the case where we get a 403 indicating a user is not authorised to view a page after they've already navigated to it, a follow on NgRx effect can handle this by redirecting the user to an access denied page or back to a safe page.
+
+This ensures that for the 99% of situations where users do have permission to access the page they are navigating to, the experience is fast and fluid with the application responding immediately to user input.
+
+> Security implications: You might wonder whether activating the route immediately has security implications, because an unauthorised user might get the JS bundle for the page they are not authorised to view before being redirected away by the effect that handles the 403 error.
+>
+> In practice, this does not meaningfully reduce security:
+>
+> - Frontend code and routes are inherently discoverable by a motivated user (e.g. by typing URLs directly or inspecting the downloaded JavaScript).
+> - A spinner/skeleton does not reveal protected data — it’s just feedback that navigation started.
+>
+> The security boundary must still live on the backend: always enforce authorisation on API requests and only return data the current user is allowed to access. If the API responds with `403`, handle it in an effect and redirect to an access-denied (or other safe) page.
+
+
+The goal of a route-driven approach to data loading isn't just to give us more power as FE developers, but also to simplify the mental model around what data should be loaded where through that question being answered always by 'what route are you on, what does the URL say'.
+
+
+## Component Viewmodel Pattern
+
+The Component Viewmodel Pattern is a design approach that aims to simplify the management of component state and data transformation in Angular applications. By leveraging Angular signals and NgRx's `selectSignal`, this pattern allows for a clear separation of concerns between the component's UI logic and the underlying state management.
+
+A viewmodel is a data structure that represents the state of a UI component or screen in a way that is optimized for rendering. It typically contains all the data and state needed to render the UI, as well as any derived or computed values that are needed for display.
+
+In the architecture recommended here, viewmodels are implemented using Angular signals and NgRx's `selectSignal` to derive state from the store. The viewmodel is exposed to the component template via a `readonly vm = computed(...)` property.
+
+Let's look at some code to illustrate this pattern in practice...
+
+
+
+### foo-sidebar.component.ts
+
+Examine the code below for an imagined sidebar component and note how it's only concerned with 3 things:
+
+- holding local UI state via signals
+- exposing a `vm` signal to the template
+- dispatching actions in response to user interactions (reporting user intents but not handling any logic around those intents)
+
+
+```typescript
+// features/foo/components/foo-sidebar/foo-sidebar.component.ts
+
+import { FooActions } from '../store/foo.actions';
+
+@Component({ /* ... */ })
+export class FooSidebarComponent {
+  private readonly store = inject(Store);
+  
+  // Local component state, think carefully and confirm that ONLY this component needs it.
+  // i.e. a typeahead search text or an expanded/collapsed state.
+  // Sometimes you might have 'UI' state that is nonetheless needed across mutliple components, in which
+  // case best to extend the domain type in /feature/@types/foo.model.ts and manage it in the store.
+  private readonly searchTextS = signal('');
+  private readonly expandedS = signal(true);
+
+  readonly vm = fooSidebarVM(this.store, this.searchTextS, this.expandedS);
+
+  constructor() {
+    effect(() => {
+      // Example of a side effect that runs whenever the viewmodel changes.
+      // Use sparingly.
+      // Ask yourself if NgRx effects would be more appropriate.
+      // In most cases you shouldn't need to do this.
+      console.log('FooSidebarComponent VM changed:', this.vm());
+    });
+  }
+
+  // UI intents
+  setSearch(text: string) { 
+    this.searchTextS.set(text); 
+  }
+
+  toggleExpanded() { 
+    this.expandedS.update(v => !v); 
+  }
+
+  // Domain intents (store dispatch)
+  textInputChange(text: string) {
+    this.store.dispatch(FooActions.fooInputValueChange({ text }));
+  }
+
+  select(id: string) { 
+    this.store.dispatch(FooActions.fooSelected({ id })); 
+  }
+
+  sendMessageToSelectedFoo() {
+    this.store.dispatch(FooActions.sendMessageToSelectedFooButtonClick());
+  }
+
+}
+
+```
+
+
+### foo-sidebar.viewmodel.ts
+
+This `*.viewmodel.ts` is where we define the view model and should always be found along side the `*.component.ts` for which it defines a view model for.
+
+Let's start with the code and then break it down...
+
+
+```typescript
+// features/foo/components/foo-sidebar/foo-sidebar.viewmodel.ts
+
+/**
+  * ViewModel type definition.
+ */
+export type FooSidebarVM = {
+  readonly showLoadingState: boolean;
+  readonly showFooMessageInput: boolean;
+  readonly fooMessageInputValue: string;
+  readonly foosToDisplay: FooItemVM[];
+  readonly showSendMessageButton: boolean;
+  readonly disableSendMessageButton: boolean;
+  readonly errorMessageToShow: string | null;
+};
+
+
+/**
+ * mapToVM function. 
+ * 
+ * A pure mapping function that transforms raw state into the ViewModel.
+ */
+export function mapToFooSidebarVM(input: {
+  permissions: string[];
+  foos: Foo[] | undefined;
+  inputText: string;
+  selectedId: string | null;
+  expanded: boolean;
+  searchText: string;
+}): FooSidebarVM {
+  
+  // It's often worth creating intermediate variables.
+  // For complex conditions it will improve readability.
+  const canSendMessage = input.permissions.includes('can_send_message');
+  const hasFoos = !!input.foos?.length;
+
+  return {
+    showLoadingState: input.foos === undefined,
+    showFooMessageInput: canSendMessage && hasFoos,
+    fooMessageInputValue: input.inputText,
+    foosToDisplay: (input.foos ?? []).map(foo => ({
+      id: foo.id,
+      name: foo.name,
+      description: foo.description ?? '',
+      status: foo.status,
+      isSelected: foo.id === input.selectedId
+    })).filter(foo => foo.name.toLowerCase().includes(input.searchText.toLowerCase())),
+    showSendMessageButton: canSendMessage && hasFoos,
+    disableSendMessageButton: !input.selectedId || input.inputText.trim() === '',
+    errorMessageToShow: !hasFoos ? 'An error occurred.' : null
+  };
+}
+
+/**
+ * VM Store -> Signal function.
+ */
+export function fooSidebarVM(store: Store, searchText: Signal<string>, expanded: Signal<boolean>): Signal<FooSidebarVM> {
+
+  // Domain state (from NgRx as signals)
+  const permissions: Signal<string[]> = store.selectSignal(FromCore.selectPermissions);
+  const foos: Signal<Foo[] | null | undefined> = store.selectSignal(FromFoo.selectFoos);
+  const inputText: Signal<string> = store.selectSignal(FromFoo.selectFooInputText);
+  const selectedId: Signal<string | null> = store.selectSignal(FromFoo.selectSelectedFooId);
+
+  return computed(() => {
+    return mapToFooSidebarVM({
+      permissions: permissions(),
+      foos: foos(),
+      inputText: inputText(),
+      selectedId: selectedId(),
+      expanded: expanded(),
+      searchText: searchText()
+    });
+  });
+}
+
+```
+
+Every viewmodel file has three parts:
+
+**1. ViewModel Type Definition**
+Defines the contract between the view and the application. The key is making this contract readable from both sides - the component should know what to do with each property, and the viewmodel should clearly indicate its intent. Use as an opportunity to add clarity and intention.
+
+Make sure a future developer is never asking:
+
+- *From view-model.ts side:* "What will the component/view do with this data or flag?"
+
+- *From component.ts side:* "What am I supposed to do with this data or flag?"
+
+**2. Mapping Function (mapToVM)**
+A pure function that transforms raw store data into the ViewModel. This is where you compute derived data and handle transformations.
+
+> **Important**: Be careful with null reference errors - one mistake breaks the entire component. Use strict TypeScript settings, linting rules, and thorough unit testing. These mapping functions are ideal for unit testing and provide the highest ROI for test coverage.
+
+**3. VM Signal Function**
+Combines store data and local component state into a single reactive signal. This function is used inside the component and typically needs references to the store and local UI signals.
+
+
+### Component hierarchy
+
+Imagine the above sidebar component as a child of a `foo/view/foo-page.component.ts`. The same view model pattern would be used for the page component too which would have its own `foo-page.viewmodel.ts`. In fact, not every component needs a view model and it would be more likely that the child component uses signal inputs filled by properties from the parent component's view model.
+
+> The  above begs the question: When *should* a child component of a page or screen have its own view model? Answer: when you want to break up the parent component's viewmodel into smaller pieces for readability and maintainability. This is because if the child component component doesn't have a view model then necessarily those input signals will need to be populated by properties from the parent component's viewmodel. If a large part of your `foo-page.viewmodel.ts` is concerned with populating fields for the `foo-sidebar.components.ts` then that might lead you to create a `foo-sidebar.viewmodel.ts` as below.
+
+
+### Benefits of the Component ViewModel Pattern
+
+
+The Component ViewModel Pattern offers several key benefits:
+
+1. **Separation of Concerns**: By clearly delineating the responsibilities of views and state management, the pattern promotes a cleaner architecture. Views focus on presentation logic, reactivity and lifecycle events, while viewmodels handle data transformation and business logic.
+
+2. **Testability**: Pure mapping functions are inherently testable. They can be unit tested in isolation, ensuring that the logic for transforming state into view-ready data is correct without the need for complex setup or dependencies.
+
+3. **Clarity and Explicitness**: The viewmodel contract is explicit about what data is available to the view and how it should be used. This clarity helps prevent misunderstandings and makes it easier for developers to work with the code.
+
+4. **Performance Benefits**: Using `computed()` to derive the viewmodel reactively allows for efficient updates. Only the parts of the view that depend on changed data are re-rendered, improving performance.
+
+5. **PR Review Friendliness**: Clear, explicit transformations in the viewmodel are easy to follow and reason about during PR reviews. This transparency helps reviewers understand the intent behind changes and reduces the likelihood of introducing bugs.
+
+
+
+
+### Notes — implementation guidance
+
+- NgRx placement
+  - Keep all feature store artifacts in a `store/` folder inside the feature: `actions`, `effects`, `reducer`, `selectors`.
+  - Name files consistently (e.g. `foo.actions.ts`, `foo.effects.ts`, `foo.reducer.ts`, `foo.selectors.ts`) so reviewers instantly know where to look.
+  - Shared/global state can live in `core/store` or a top-level `store/` if truly cross-cutting.
+
+- VM mappers (placement & shape)
+  - Place VM mappers next to the view they serve (e.g. `foo-page.viewmodel.ts` or `foo-sidebar.viewmodel.ts`).
+  - Define VMs as **types** (e.g. `FooPageVM`, `FooSidebarVM`) since they're pure data containers.
+  - Use `readonly` properties to emphasize immutability.
+  - Export a single pure function like `mapToFooPageVM(input): FooPageVM`. No DI, no side-effects, deterministic outputs, safe defaults.
+  - Unit-test these mappers thoroughly — they are the highest-ROI tests.
+
+- Component-local UI state
+  - Keep UI-only state local to the component using signals (`signal`, `computed`). Expose a `readonly vm = computed(...)` to the template.
+  - If multiple sibling components share ephemeral UI state, consider a small colocated signal/service; only elevate to NgRx when state needs global coordination, persistence, or cross-feature consumption.
+
+- Component + ViewModel pattern
+  - Components handle UI state via signals and delegate domain state to NgRx via `selectSignal`.
+  - Pure ViewModel mapper functions transform raw state into display-ready data structures.
+  - This approach keeps components focused on UI concerns while making business logic easily testable.
+
+- Testing & review ergonomics
+  - Prioritise: VM mapper tests > effects tests > light component tests.
+  - Keep action names and folder layout explicit — this pays back in faster, more reliable PR reviews.
+
+These rules aim for predictability: small, colocated pieces with clear responsibilities make code easier to read, review, and refactor.
+
+
 
 ## Where do services fit in?
 
