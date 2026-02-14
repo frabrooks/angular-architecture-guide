@@ -385,13 +385,15 @@ export const routes = [
 
 > Note: The lazy-loaded approach doesn't replace the root/core store. The root store can and should hold global state that is relevant across the entire application, such as authentication status, user profile, or application settings.
 
-## Route Driven Data
+## Route Driven Data (Where does the data come from?)
 
 What do I want to say in this section?
 
 I guess, start with introducing the principal. Somehow we need to control the data loading. Whatever strategy we choose, we want a system that gives us as FE developers control and flexibility around how that data is retained and how often it is reloaded. For example, sometimes you have a page foo-page at route /foo with a link to a foo-sub-page at route foo/sub-page.
 
 Sometimes we want to reload the data when navigating in and out of foo-sub-page, sometimes we may deem it unnecessary to reload the data and would prefer a snappier experience for users navigating between foo-page and foo-sub-page.
+
+The importance of this is that each unnecessary request we can prevent lightens the load on our backend services, which will manifest as faster response times across the board, improving the overall responsiveness of our application.
 
 The second important desire is facilitating UX flow over strict data guarantees at route time. We want the UI to be as responsive and fluid as possible.
 
@@ -413,13 +415,14 @@ The simplest and most frequently seen approach is to load data in the component'
 - it forces every sub page to be responsible for loading the data for even its upstream feature modules, i.e. if foo-sub-page is a settings page, it might need to know the state of the users 'foo' object (that the parent feature module /foo also loads and displays) but also an 'allowed-settings' object from a reference API etc. We can't assume that the /foo data is already loaded (as it would be if say stored in a service from the user navigating from /foo to /foo/settings as we expect) as they might be refreshing the page. So we end up in a world where even though /foo-settings is a feature module downstream of /foo that only ever appears under /foo/settings, it still needs to take responsiblity for loading of /foo data in case it's not there.
 
 
-#### ✅ The route-driven approach
+#### ✅ The route-driven NgRx approach
 
 With NgRx we can leverage the power of the store to manage data loading more effectively. Instead of relying on individual components to load their own data, we can centralise data fetching logic in effects and use selectors to provide the necessary data to components. This allows us to:
 
 - Control data loading at a higher level, making it easier to manage when and how data is fetched.
 - Share data between components more easily, reducing the need for each component to load its own data.
 - Simplify the component code, making it easier to reason about and maintain.
+- Detach data loading from the component lifecycle, allowing for more flexible and responsive UI patterns.
 
 We can leverage Angular's router to dispatch actions when a route is entered, allowing for a more fluid user experience. By dispatching actions on route entry, we can initiate data loading or other side effects without blocking the navigation.
 
@@ -433,7 +436,7 @@ See below for example of routes.ts with two imagined features `foo-feature` and 
 export const routes = [
   {
     path: 'foo-feature',
-    resolve: [() => inject(Store).dispatch(FooFeatureActions.entered())],
+    resolve: [() => inject(Store).dispatch(FooActions.entered())],
     children: [
       {
         path: 'baz-feature',
@@ -474,14 +477,14 @@ export class FooFeatureEffects {
   loadFooData$ = createEffect(() =>
     this.actions$.pipe(
       ofType(
-        FooFeatureActions.entered,
-        FooFeatureActions.postFooDataSuccess,
+        FooActions.entered,
+        FooActions.postFooStatusUpdateSuccess,
         // ...other actions that should trigger a reload of foo data
       ),
       switchMap(() => {
         return this.fooHttpService.getFooData().pipe(
-          map(fooData => FooFeatureActions.loadFooDataSuccess({ fooData })),
-          catchError(error => of(FooFeatureActions.loadFooDataFailure({ error })))
+          map(fooData => FooActions.loadFooDataSuccess({ fooData })),
+          catchError(error => of(FooActions.loadFooDataFailure({ error })))
         );
       })
     )
@@ -489,7 +492,7 @@ export class FooFeatureEffects {
 
   redirectToAccessDeniedOn403$ = createEffect(() =>
     this.actions$.pipe(
-      ofType(FooFeatureActions.loadFooDataFailure),
+      ofType(FooActions.loadFooDataFailure),
       filter(action => action.error.status === 403),
       tap(() => this.router.navigate(['/access-denied']))
     ),
@@ -511,33 +514,35 @@ export class FooFeatureEffects {
 
   constructor(private actions$: Actions, private store: Store) {}
 
-  handleRouteEntry$ = createEffect(() =>
+  ensureFooData$ = createEffect(() =>
     this.actions$.pipe(
-      ofType(FooFeatureActions.entered),
+      ofType(FooActions.entered),
       switchMap(() => {
         return this.store.select(selectFooData).pipe(
           take(1),
           map(fooData => {
             if (!fooData) {
-              return FooFeatureActions.fooDataMissingOnEntry();
+              return this.fooHttpService.getFooData().pipe(
+                map(fooData => FooActions.loadFooDataSuccess({ fooData })),
+                catchError(error => of(FooActions.loadFooDataFailure({ error })))
+              );
+            } else {
+              // Data already present, no need to fetch.
+              return of(FooActions.ensureFooDataSuccess({ fooData }));
             }
-            return { type: '[Foo Feature] No Action Needed' };
-          })
+          }),
         );
       })
     )
   );
 
-  loadFooData$ = createEffect(() =>
+  refreshFooData$ = createEffect(() =>
     this.actions$.pipe(
-      ofType(
-        FooFeatureActions.fooDataMissingOnEntry,
-        FooFeatureActions.postFooDataSuccess,
-      ),
+      ofType(FooActions.postFooStatusUpdateSuccess),
       switchMap(() => {
         return this.fooHttpService.getFooData().pipe(
-          map(fooData => FooFeatureActions.loadFooDataSuccess({ fooData })),
-          catchError(error => of(FooFeatureActions.loadFooDataFailure({ error })))
+          map(fooData => FooActions.loadFooDataSuccess({ fooData })),
+          catchError(error => of(FooActions.loadFooDataFailure({ error })))
         );
       })
   );
@@ -545,8 +550,69 @@ export class FooFeatureEffects {
 }
 ```
 
+> Note how there are now two effects, one for ensuring data is present on route entry, and another for reloading data after a status update. This is an example of how we can have multiple triggers for the same data loading logic, but still maintain control over when data is loaded and avoid unnecessary API calls.
 
-The advantage of the above approach is that routes activate immediately, actions are dispatched to load data, effects handle fetching, errors, and redirects etc.
+Or if we're loading data but need data from parent feature module first:
+
+```typescript
+// features/baz-feature/store/baz-feature.effects.ts
+
+import { FromFoo } from '@features/foo/store/foo-feature.selectors';
+import { FooActions } from '@features/foo/store/foo-feature.actions';
+import { FromBaz } from './baz-feature.selectors';
+
+@Injectable()
+export class BazFeatureEffects {
+
+  private bazHttpService = inject(BazHttpService);
+
+  constructor(private actions$: Actions, private store: Store) {}
+
+  loadBazData$ = createEffect(() =>
+    this.actions$.pipe(
+      // Two triggers, one behavior:
+      ofType(BazActions.entered, FooActions.loadFooDataSuccess),
+      // Idempotency guard: don't refetch if Baz is already loaded.
+      concatLatestFrom(() => this.store.select(FromBaz.selectBazLoaded)),
+      filter(([, bazLoaded]) => !bazLoaded),
+      exhaustMap(() => {
+
+        const fooData$ = this.store.select(FromFoo.selectFoos).pipe(
+          filter(fooData => !!fooData),
+          take(1)
+        );
+
+        const fooFailed$ = this.actions$.pipe(
+          ofType(FooActions.loadFooDataFailure),
+          take(1),
+          map(() => BazActions.loadBazDataAbort())
+        );
+
+        return race(
+          fooData$.pipe(
+            switchMap(fooData =>
+              this.bazHttpService.getBazData(fooData).pipe(
+                map(bazData => BazActions.loadBazDataSuccess({ bazData })),
+                catchError(error => of(BazActions.loadBazDataFailure({ error })))
+              )
+            )
+          ),
+          fooFailed$
+        );
+      })
+    )
+   );
+
+}
+```
+
+As you can see from the above examples, there's plenty of flexibility and control with this pattern, with the small cost of cognitive overhead - but it's precisely the kind of overhead that we want to embrace as it gives us more power as FE developers lighten the load on our backend services and allows us to create a more responsive and fluid user experience.
+
+It all starts with using the resolvers to load data, but through firing actions instead of blocking the route activation:
+
+`resolve: [() => inject(Store).dispatch(FeatureActions.entered())]`
+
+The advantage of this approach is that routes activate immediately and users get immediate feedback that their action has been registered, while the data loading happens asynchronously in the background.
 
 The important thing to remember here is that because the route activates immediately, views/screens should handle loading/error states gracefully as otherwise users might be left staring at a blank page with no feedback for an extended period of time if the API call is slow or fails.
 
@@ -565,21 +631,18 @@ This ensures that for the 99% of situations where users do have permission to ac
 >
 > The security boundary must still live on the backend: always enforce authorisation on API requests and only return data the current user is allowed to access. If the API responds with `403`, handle it in an effect and redirect to an access-denied (or other safe) page.
 
-
-The goal of a route-driven approach to data loading isn't just to give us more power as FE developers, but also to simplify the mental model around what data should be loaded where through that question being answered always by 'what route are you on, what does the URL say'.
+The goal of a route-driven approach to data loading isn't just to give us more power as FE developers, but also to simplify the mental model around what data should be loaded where through that question being answered always by 'what route are you on?'.
 
 
 ## Component Viewmodel Pattern
 
-The Component Viewmodel Pattern is a design approach that aims to simplify the management of component state and data transformation in Angular applications. By leveraging Angular signals and NgRx's `selectSignal`, this pattern allows for a clear separation of concerns between the component's UI logic and the underlying state management.
+The final piece of the architecture puzzle is the Component Viewmodel Pattern, which is a design approach that aims to simplify the management of component state and data transformation in Angular applications. By leveraging Angular signals and NgRx's `selectSignal`, this pattern allows for a clear separation of concerns between the component's UI logic and the underlying state management.
 
 A viewmodel is a data structure that represents the state of a UI component or screen in a way that is optimized for rendering. It typically contains all the data and state needed to render the UI, as well as any derived or computed values that are needed for display.
 
 In the architecture recommended here, viewmodels are implemented using Angular signals and NgRx's `selectSignal` to derive state from the store. The viewmodel is exposed to the component template via a `readonly vm = computed(...)` property.
 
 Let's look at some code to illustrate this pattern in practice...
-
-
 
 ### foo-sidebar.component.ts
 
@@ -772,171 +835,17 @@ The Component ViewModel Pattern offers several key benefits:
 
 5. **PR Review Friendliness**: Clear, explicit transformations in the viewmodel are easy to follow and reason about during PR reviews. This transparency helps reviewers understand the intent behind changes and reduces the likelihood of introducing bugs.
 
+## FAQs
 
+### Where do services fit in?
 
+In this guide, we've hardly mentioned services, but they still have an important role to play in the architecture.
 
-### Notes — implementation guidance
+It's just important when using them to ask whether NgRx might be a better fit for what you're trying to achieve. Don't fear creating an NgRx store just because it feels like a small amount of state at the time of writing - it's better to have a consistent and predictable codebase and not sweat the boilerplate; especially with generative AI tools, the boilerplate is less of a concern than it used to be.
 
-- NgRx placement
-  - Keep all feature store artifacts in a `store/` folder inside the feature: `actions`, `effects`, `reducer`, `selectors`.
-  - Name files consistently (e.g. `foo.actions.ts`, `foo.effects.ts`, `foo.reducer.ts`, `foo.selectors.ts`) so reviewers instantly know where to look.
-  - Shared/global state can live in `core/store` or a top-level `store/` if truly cross-cutting.
+If your service is managing state that needs to be shared across components, persisted, or coordinated with other features, then NgRx is likely the better choice. On the other hand, if you have complex logic that doesn't fit well in effects or selectors, or if you have a piece of functionality that is purely a utility and doesn't need to manage state, then a service can be a good place for that.
 
-- VM mappers (placement & shape)
-  - Place VM mappers next to the view they serve (e.g. `foo-page.viewmodel.ts` or `foo-sidebar.viewmodel.ts`).
-  - Define VMs as **types** (e.g. `FooPageVM`, `FooSidebarVM`) since they're pure data containers.
-  - Use `readonly` properties to emphasize immutability.
-  - Export a single pure function like `mapToFooPageVM(input): FooPageVM`. No DI, no side-effects, deterministic outputs, safe defaults.
-  - Unit-test these mappers thoroughly — they are the highest-ROI tests.
+A telltale sign that you might want to use a service class is when you start passing state through sequences of actions so that chains of effects can do different things and the names of the effects start to become less clear.
 
-- Component-local UI state
-  - Keep UI-only state local to the component using signals (`signal`, `computed`). Expose a `readonly vm = computed(...)` to the template.
-  - If multiple sibling components share ephemeral UI state, consider a small colocated signal/service; only elevate to NgRx when state needs global coordination, persistence, or cross-feature consumption.
-
-- Component + ViewModel pattern
-  - Components handle UI state via signals and delegate domain state to NgRx via `selectSignal`.
-  - Pure ViewModel mapper functions transform raw state into display-ready data structures.
-  - This approach keeps components focused on UI concerns while making business logic easily testable.
-
-- Testing & review ergonomics
-  - Prioritise: VM mapper tests > effects tests > light component tests.
-  - Keep action names and folder layout explicit — this pays back in faster, more reliable PR reviews.
-
-These rules aim for predictability: small, colocated pieces with clear responsibilities make code easier to read, review, and refactor.
-
-
-
-## Where do services fit in?
-
-Complex logic that doesn't fit well in effects or selectors can be encapsulated in services. These services can be injected into effects or components as needed. The key is to keep services focused on a specific domain or area of functionality, and to avoid putting stateful logic in services where possible. Services should be stateless and reusable, while stateful logic should live in the store or component signals.
-
-
-
-# TODO: MOVE NgRx Best Practice to separate doc
-
-## Action Naming (Best Practice)
-
-Use a clear taxonomy:
-
-### Page / Navigation Events
-- `[Foo Page] Entered`
-- `[Foo Parent Page] Entered`
-
-### User Intents
-- `[Foo Sidebar] Selected Foo`
-- `[Foo Sidebar] Search Changed` (optional—often local signal instead)
-
-### API Results
-- `[Foo API] Load Foo Success`
-- `[Foo API] Load Foo Failure`
-
-### Commands
-- `[Foo] Ensure Foo Loaded` (if you like explicit "ensure" actions)
-
-
-## Effects (Named by Side-Effect, Idempotent, Dependency-Gated)
-
-### Foo-Parent Actions
-
-**foo-parent.actions.ts**
-
-```typescript
-export const FooParentPageActions = {
-  entered: createAction('[Foo Parent Page] Entered'),
-};
-
-export const FooParentApiActions = {
-  loadSuccess: createAction('[Foo Parent API] Load Success', props<{ data: FooParentData }>()),
-  loadFailure: createAction('[Foo Parent API] Load Failure', props<{ error: unknown }>()),
-};
-```
-
-### Foo-Parent Effect
-
-**foo-parent.effects.ts**
-
-```typescript
-fetchFooParentData$ = createEffect(() =>
-  this.actions$.pipe(
-    ofType(FooParentPageActions.entered),
-    concatLatestFrom(() => this.store.select(FooParentSelectors.selectLoaded)),
-    filter(([, loaded]) => !loaded),
-    switchMap(() =>
-      this.api.getFooParentData().pipe(
-        map(data => FooParentApiActions.loadSuccess({ data })),
-        catchError(error => of(FooParentApiActions.loadFailure({ error })))
-      )
-    )
-  )
-);
-```
-
-### Foo Actions
-
-**foo.actions.ts**
-
-```typescript
-export const FooPageActions = {
-  entered: createAction('[Foo Page] Entered', props<{ id: string }>()),
-};
-
-export const FooApiActions = {
-  loadSuccess: createAction('[Foo API] Load Success', props<{ foo: Foo }>()),
-  loadFailure: createAction('[Foo API] Load Failure', props<{ error: unknown }>()),
-};
-
-export const FooUiActions = {
-  selected: createAction('[Foo Sidebar] Selected', props<{ id: string }>()),
-};
-```
-
-### Foo Effect (Waits for Parent State Inside Effect, Does Not Block Route)
-
-**foo.effects.ts**
-
-```typescript
-fetchFooData$ = createEffect(() =>
-  this.actions$.pipe(
-    ofType(FooPageActions.entered),
-    switchMap(({ id }) =>
-      this.store.select(FooParentSelectors.selectSomethingNeededByFoo).pipe(
-        filter(Boolean),
-        take(1),
-        switchMap(parentThing =>
-          this.api.getFoo({ id, parentThing }).pipe(
-            map(foo => FooApiActions.loadSuccess({ foo })),
-            catchError(error => of(FooApiActions.loadFailure({ error })))
-          )
-        )
-      )
-    )
-  )
-);
-```
-
-> Optionally add idempotency checks against `selectFooLoadedById(id)` too.
-
-# TODO: Move/fold testing approach into separate document
-
-## Testing Approach (Best Practice)
-
-### VM Tests (Highest ROI)
-- Unit test `mapToFooSidebarVM` / `mapToFooPageVM` as pure functions.
-
-### Effects Tests
-
-**fetchFooParentData$:**
-- when entered and not loaded → calls API → success/failure actions
-
-**fetchFooData$:**
-- when `[Foo Page] Entered` but parent data missing → waits
-- once parent data present → calls API → success/failure
-
-### Component Tests (Optional)
-- Typically light: template wiring and event handlers.
-- Don't re-test VM logic already covered by mapper tests.
-
----
-
-
+The key is to keep services focused on a specific domain or area of functionality, and to avoid putting stateful logic in services where possible.
 
