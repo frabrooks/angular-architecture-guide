@@ -40,15 +40,15 @@ In terms of organising code, there are arguably three different approaches/optio
    The problem is, every big LOB application tends to have some object that the app is built to manage, e.g. a case, instruction, contract, project, plan etc. And so over time, you end up with a massive `case/` or `instruction/` folder with deep nesting.
    In any reasonably complex project - and really, if your project is simple you might as well use generative AI or low-code tools to build it - this approach tends to lead to confusion and difficulty finding things. It also makes it hard to reason about dependencies between features, as everything is tangled together. So prefer even an opinionated structure over this.
 
-3. ❌ **BE inspired architecture**
+2. ❌ **BE inspired architecture**
    i.e. domain/ presentation/ services/ etc. breaks code down according to layers or concerns, similar to how backend applications are often structured. This makes a lot of sense on the backend where you have clear layers (controllers, services, repositories etc.) and where at a certain point of abstraction, data is data. It doesn't matter whether it's user data, order data, invoice data etc. endpoints all flow through the same layers and are processed similarly and the whole application is eventually compiled into a single deployable unit.
    On the frontend however, we have the concept of lazy-loaded feature modules, each with their own bundle/chunk. This means that features are more isolated from each other and (should) have clearer boundaries. There's also a lot more variation between features on the frontend. One might contain a map view with complex interactions, another might be a simple form, another containing a payments integration etc. Grouping code by layer/concern tends to obscure these differences and make it harder to navigate the codebase. It can also lead to large, monolithic layers that are hard to maintain and reason about. It also breaks the principle of cohesion, as code that changes together is often spread across multiple layers.
 
-2. ❌ **Nested feature driven architecture**
+3. ❌ **Nested feature driven architecture**
    This is where you enforce a feature-based structure, but allow deep nesting within features. This allows for features within features. e.g. `case/` feature might have `case-details/`, `case-tasks/`, `case-history/` sub-features, each with their own store, views, components etc.
    The problem with this approach is that it can lead to very deep nesting, making it hard to find things. It can also lead to duplication of code if multiple features need similar functionality. And what happens when a sub-feature of feature A suddenly also has need to be a sub-feature of feature B? You'd need to move it up a level of course, but then you'd lose 'feature folder within feature A means dependent on A' assumption. Some of A's dependents might be sub-features within the `feature/feature-a` folder, others might be siblings of `feature-a` at the top level `features/` folder.
 
-3. ✅ **Flat feature driven architecture**
+4. ✅ **Flat feature driven architecture**
     This is the approach recommended here. Each feature gets its own folder under `features/`. No sub-features within features. If a feature gets too big, consider splitting it into multiple features at the top level `features/` folder.
     
     This keeps things simple and predictable. You always know where to find a feature's code, and you avoid deep nesting. It also makes it easier to manage dependencies between features, as all features are at the same level.
@@ -385,253 +385,277 @@ export const routes = [
 
 > Note: The lazy-loaded approach doesn't replace the root/core store. The root store can and should hold global state that is relevant across the entire application, such as authentication status, user profile, or application settings.
 
-## Route Driven Data (Where does the data come from?)
+## Route Driven Data Fetching
 
-What do I want to say in this section?
+For scalable SPAs, the current route should be the driving force in answering the question of "what data should be loaded where?"
 
-I guess, start with introducing the principal. Somehow we need to control the data loading. Whatever strategy we choose, we want a system that gives us as FE developers control and flexibility around how that data is retained and how often it is reloaded. For example, sometimes you have a page foo-page at route /foo with a link to a foo-sub-page at route foo/sub-page.
+> The exception being long-lived reference data from non-parameterized API routes in which case it's often simpler to handle in a service that fetches and caches the data on demand when observables or signals are subscribed to.
 
-Sometimes we want to reload the data when navigating in and out of foo-sub-page, sometimes we may deem it unnecessary to reload the data and would prefer a snappier experience for users navigating between foo-page and foo-sub-page.
+Routes are the most stable, explicit expression of user intent in a frontend application. A user navigates somewhere because they intend to view or interact with something. That makes the route the natural place to define data-loading policy:
 
-The importance of this is that each unnecessary request we can prevent lightens the load on our backend services, which will manifest as faster response times across the board, improving the overall responsiveness of our application.
+- **What** data is required for this screen to be useful
+- **When** it should be fetched or refreshed
+- **How long** it should be retained
+- **What happens on failure** (retry, show error, redirect, etc.)
 
-The second important desire is facilitating UX flow over strict data guarantees at route time. We want the UI to be as responsive and fluid as possible.
+This is not just an implementation detail — it is architecture.
 
-Decades of human–computer interaction research show that what matters most for usability is not raw loading time, but how quickly a system responds to user input. Work popularised by Jakob Nielsen and others identifies three broad thresholds: around 100 milliseconds, where responses feel instantaneous and preserve a sense of direct control; around one second, where users notice a delay but generally remain focused; and around ten seconds, where attention reliably breaks. Beyond this point, users disengage, context-switch, and often fail to return to the task quickly. As a result, even small, frequent delays can have a disproportionate impact on productivity, not because of the seconds they consume, but because they disrupt working memory and cognitive flow.
+If data loading policy is implicit (spread across lifecycle hooks, services, or child components), it becomes inconsistent, hard to reason about, and difficult to review. If it is route-driven and centralised in NgRx effects, it becomes explicit, testable, and easy to discuss in PR reviews.
 
-From this perspective, effective frontend design is primarily about preserving predictability and agency rather than minimising absolute wait time. When an interface reacts immediately—through visual feedback, skeletons, or loading indicators—users maintain confidence that their action has been registered, even if the underlying data takes longer to arrive. Conversely, silent pauses or delayed feedback create uncertainty, which triggers distraction and habitual context-switching (for example, checking a phone or opening another tab). A three-second wait with instant feedback is often perceived as more usable than a one-second freeze with no visible response.
+There are three major motivations for this approach:
 
-In practical terms, this implies prioritising rapid, sub-second UI feedback over strict data guarantees at route or interaction time. For modern web applications, especially SPAs, the goal should be to ensure that every meaningful user action produces visible feedback within roughly 100 milliseconds, even if full data hydration occurs later. This approach supports sustained focus, reduces cognitive friction, and aligns technical architecture with how humans actually perceive and interact with responsive systems.
+1. **Reducing unnecessary backend load**  
+   Every unnecessary request we prevent lightens the load on our backend services. This doesn’t just save infrastructure cost — it improves response times across the board. Backend systems degrade non-linearly under load; reducing waste improves performance for everyone. Good frontend orchestration is therefore also a form of backend optimisation.
 
-> Aside: The above is why I think it's unfortunate Angular has async route resolvers and guards because they block the route activation until the data is loaded, which means that users don't get any feedback that their action has been registered until the data is fully loaded. You might think the solution is to simply have discipline and keep those route API calls fast but in practice all API calls are going to be slow sometimes, the 95th percentile response time for most of your API calls is often worse than you think.
+2. **Preserving user flow and responsiveness**  
+   We should prioritise immediate UI feedback over strict data guarantees at route time. Users do not require data instantly; they require acknowledgement instantly.
 
+3. **Simplifying mental models and code review**  
+   When data loading is route-driven and centralised in effects, the mental model is clear: “What route are you on? That determines what data should be loaded.” This makes it easier for developers to reason about the code and for reviewers to verify that data isn’t being loaded unnecessarily or in the wrong places.
 
-#### ❌ The ngOnInit approach
+---
 
-The simplest and most frequently seen approach is to load data in the component's `ngOnInit` lifecycle hook, hopefully using shareReplay to avoid multiple API calls. This is straightforward and works well for simple cases, but it has a couple of drawbacks. Namely:
+### ❌ The `ngOnInit` approach
 
-- in the example above, controlling when and how we reload data becomes clunky. ShareReplay is a common solution to this problem, but it can lead to stale data and doesn't give us fine-grained control over when data is reloaded. We might want to reload data when navigating back to foo-page from foo-sub-page, but not when navigating from foo-page to foo-sub-page. This approach doesn't give us that level of control.
+The simplest and most common approach is to fetch data in `ngOnInit`, often using `shareReplay` to avoid duplicate requests.
 
-- it forces every sub page to be responsible for loading the data for even its upstream feature modules, i.e. if foo-sub-page is a settings page, it might need to know the state of the users 'foo' object (that the parent feature module /foo also loads and displays) but also an 'allowed-settings' object from a reference API etc. We can't assume that the /foo data is already loaded (as it would be if say stored in a service from the user navigating from /foo to /foo/settings as we expect) as they might be refreshing the page. So we end up in a world where even though /foo-settings is a feature module downstream of /foo that only ever appears under /foo/settings, it still needs to take responsiblity for loading of /foo data in case it's not there.
+This works in small applications, but it does not scale well.
 
+- **Reload policy becomes accidental**  
+  Navigating between `/foo` and `/foo/settings` might re-trigger `ngOnInit`, or might not, depending on component reuse. Developers then patch behaviour with caching operators or flags. Instead of expressing a clear policy, we get emergent behaviour.
 
-#### ✅ The route-driven NgRx approach
+- **Child pages become responsible for parent data**  
+  If `/foo/settings` depends on data loaded by `/foo`, it cannot assume that data is present (users refresh, deep-link, or land directly). As a result, the child page must now also know how to load `/foo` data. Orchestration spreads across features and becomes duplicated.
 
-With NgRx we can leverage the power of the store to manage data loading more effectively. Instead of relying on individual components to load their own data, we can centralise data fetching logic in effects and use selectors to provide the necessary data to components. This allows us to:
+- **Harder PR review**  
+  When data loading is embedded in lifecycle hooks across multiple components and services, reviewers must mentally reconstruct the orchestration path. That increases cognitive load and makes subtle bugs easier to miss.
 
-- Control data loading at a higher level, making it easier to manage when and how data is fetched.
-- Share data between components more easily, reducing the need for each component to load its own data.
-- Simplify the component code, making it easier to reason about and maintain.
-- Detach data loading from the component lifecycle, allowing for more flexible and responsive UI patterns.
+The net result is implicit policy, accidental reloads, and unnecessary backend calls.
 
-We can leverage Angular's router to dispatch actions when a route is entered, allowing for a more fluid user experience. By dispatching actions on route entry, we can initiate data loading or other side effects without blocking the navigation.
+---
 
+### ✅ The route-driven NgRx approach
 
-See below for example of routes.ts with two imagined features `foo-feature` and `baz-feature` - with `baz-feature` having a dependency on `foo-feature`.
+Instead, treat route entry as the primary trigger and let NgRx own orchestration.
 
+A minimal pattern:
 
-```typescript
+~~~ts
 // features/foo-feature/routes.ts
-
-export const routes = [
-  {
-    path: 'foo-feature',
-    resolve: [() => inject(Store).dispatch(FooActions.entered())],
-    children: [
-      {
-        path: 'baz-feature',
-        loadChildren: () => import('../baz-feature/routes').then(m => m.routes),
-      },
-      // ...
-    ],
-  },
-];
-```
-
-
-```typescript
-// features/baz-feature/routes.ts
-
 export const routes = [
   {
     path: ':id',
-    component: BazFeaturePageComponent,
-    resolve: [() => inject(Store).dispatch(BazFeatureActions.entered())],
+    component: FooPageComponent,
+    // Dispatch without blocking activation
+    resolve: [() => inject(Store).dispatch(FooActions.entered())],
   },
 ];
-```
+~~~
 
-And then in the effects:
+This resolver does **not** await data. It simply dispatches an action. The route activates immediately, and the UI renders its loading or skeleton state while effects hydrate data in the background.
 
-```typescript
-// features/foo-feature/store/foo-feature.effects.ts
+> See the UX rationale section below for why we intentionally do not block route activation until data is loaded.
 
+This route driven approach creates a clear mental model:
+
+> “What route are you on?”  
+> → “That determines what data should be loaded.”
+
+---
+
+### NgRx effect orchestration
+
+Once route entry dispatches an `entered()` action, all loading and refresh policy lives in effects.
+
+The guiding principle is that orchestration belongs in effects, not components.
+
+Below are some common patterns for effect orchestration:
+
+#### Pattern 1: Always refresh on entry (simple and predictable)
+
+~~~ts
 @Injectable()
-export class FooFeatureEffects {
-  
-  private fooHttpService = inject(FooHttpService);
-  private router = inject(Router);
-  
-  constructor(private actions$: Actions, private store: Store) {}
+export class FooEffects {
+  private readonly actions$ = inject(Actions);
+  private readonly fooApi = inject(FooHttpService);
 
-  loadFooData$ = createEffect(() =>
-    this.actions$.pipe(
-      ofType(
-        FooActions.entered,
-        FooActions.postFooStatusUpdateSuccess,
-        // ...other actions that should trigger a reload of foo data
-      ),
-      switchMap(() => {
-        return this.fooHttpService.getFooData().pipe(
-          map(fooData => FooActions.loadFooDataSuccess({ fooData })),
-          catchError(error => of(FooActions.loadFooDataFailure({ error })))
-        );
-      })
-    )
-  );
-
-  redirectToAccessDeniedOn403$ = createEffect(() =>
-    this.actions$.pipe(
-      ofType(FooActions.loadFooDataFailure),
-      filter(action => action.error.status === 403),
-      tap(() => this.router.navigate(['/access-denied']))
-    ),
-    { dispatch: false } // Nothing to dispatch, end of action chain.
-  );
-
-}
-```
-
-Or if we only want to fetch the data if it's not already present:
-
-```typescript
-// features/foo-feature/store/foo-feature.effects.ts
-
-@Injectable()
-export class FooFeatureEffects {
-
-  private fooHttpService = inject(FooHttpService);
-
-  constructor(private actions$: Actions, private store: Store) {}
-
-  ensureFooData$ = createEffect(() =>
+  loadOnEntry$ = createEffect(() =>
     this.actions$.pipe(
       ofType(FooActions.entered),
-      switchMap(() => {
-        return this.store.select(selectFooData).pipe(
-          take(1),
-          map(fooData => {
-            if (!fooData) {
-              return this.fooHttpService.getFooData().pipe(
-                map(fooData => FooActions.loadFooDataSuccess({ fooData })),
-                catchError(error => of(FooActions.loadFooDataFailure({ error })))
-              );
-            } else {
-              // Data already present, no need to fetch.
-              return of(FooActions.ensureFooDataSuccess({ fooData }));
-            }
-          }),
-        );
-      })
-    )
+      exhaustMap(() =>
+        this.fooApi.getFoo().pipe(
+          map(foo => FooActions.loadFooSuccess({ foo })),
+          catchError(error => of(FooActions.loadFooFailure({ error }))),
+        ),
+      ),
+    ),
   );
-
-  refreshFooData$ = createEffect(() =>
-    this.actions$.pipe(
-      ofType(FooActions.postFooStatusUpdateSuccess),
-      switchMap(() => {
-        return this.fooHttpService.getFooData().pipe(
-          map(fooData => FooActions.loadFooDataSuccess({ fooData })),
-          catchError(error => of(FooActions.loadFooDataFailure({ error })))
-        );
-      })
-  );
-
 }
-```
+~~~
 
-> Note how there are now two effects, one for ensuring data is present on route entry, and another for reloading data after a status update. This is an example of how we can have multiple triggers for the same data loading logic, but still maintain control over when data is loaded and avoid unnecessary API calls.
+This is often the best default. It is easy to understand, easy to test, and easy to review.
 
-Or if we're loading data but need data from parent feature module first:
+#### Pattern 2: Ensure-loaded + explicit refresh triggers
 
-```typescript
-// features/baz-feature/store/baz-feature.effects.ts
+When you want snappy navigation without redundant calls:
 
-import { FromFoo } from '@features/foo/store/foo-feature.selectors';
-import { FooActions } from '@features/foo/store/foo-feature.actions';
-import { FromBaz } from './baz-feature.selectors';
-
+~~~ts
 @Injectable()
-export class BazFeatureEffects {
+export class FooEffects {
+  private readonly actions$ = inject(Actions);
+  private readonly store = inject(Store);
+  private readonly fooApi = inject(FooHttpService);
 
-  private bazHttpService = inject(BazHttpService);
+  ensureOnEntry$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(FooActions.entered),
+      concatLatestFrom(() => this.store.select(FromFoo.selectFooLoaded)),
+      filter(([, loaded]) => !loaded),
+      exhaustMap(() =>
+        this.fooApi.getFoo().pipe(
+          map(foo => FooActions.loadFooSuccess({ foo })),
+          catchError(error => of(FooActions.loadFooFailure({ error }))),
+        ),
+      ),
+    ),
+  );
 
-  constructor(private actions$: Actions, private store: Store) {}
+  refreshAfterMutation$ = createEffect(() =>
+    this.actions$.pipe(
+      ofType(FooActions.updateFooSuccess),
+      exhaustMap(() =>
+        this.fooApi.getFoo().pipe(
+          map(foo => FooActions.loadFooSuccess({ foo })),
+          catchError(error => of(FooActions.loadFooFailure({ error }))),
+        ),
+      ),
+    ),
+  );
+}
+~~~
+
+This makes reload policy explicit and reviewable:
+
+- On route entry: ensure data exists
+- After mutations: refresh deliberately
+
+No lifecycle guesswork. No hidden coupling.
+
+#### Pattern 3: Advanced orchestration with declarative abstraction
+
+When a feature depends on upstream feature state (e.g. Baz depends on Foo), the orchestration logic can become verbose and difficult to read if written directly in RxJS.
+
+In these cases, it can be valuable to encapsulate the common “wait / abort / fetch” pattern in a shared base class and expose a small, declarative API.
+
+
+Example usage:
+
+~~~ts
+@Injectable()
+export class BazFeatureEffects extends EffectFlowBase {
+  private readonly bazHttpService = inject(BazHttpService);
+
+  constructor(actions$: Actions, store: Store) {
+    super(actions$, store);
+  }
 
   loadBazData$ = createEffect(() =>
     this.actions$.pipe(
-      // Two triggers, one behavior:
       ofType(BazActions.entered, FooActions.loadFooDataSuccess),
-      // Idempotency guard: don't refetch if Baz is already loaded.
-      concatLatestFrom(() => this.store.select(FromBaz.selectBazLoaded)),
-      filter(([, bazLoaded]) => !bazLoaded),
-      exhaustMap(() => {
 
-        const fooData$ = this.store.select(FromFoo.selectFoos).pipe(
-          filter(fooData => !!fooData),
-          take(1)
-        );
+      // Idempotency guard: don't refetch if Baz already loaded.
+      this.skipIfLoaded(FromBaz.selectBazLoaded),
 
-        const fooFailed$ = this.actions$.pipe(
-          ofType(FooActions.loadFooDataFailure),
-          take(1),
-          map(() => BazActions.loadBazDataAbort())
-        );
+      exhaustMap(() =>
+        this.then({
+          // Wait until Foo data is fetched (!== undefined)
+          waitFor: FromFoo.selectFoos,
 
-        return race(
-          fooData$.pipe(
-            switchMap(fooData =>
-              this.bazHttpService.getBazData(fooData).pipe(
-                map(bazData => BazActions.loadBazDataSuccess({ bazData })),
-                catchError(error => of(BazActions.loadBazDataFailure({ error })))
-              )
-            )
-          ),
-          fooFailed$
-        );
-      })
-    )
-   );
+          // Abort if Foo fails
+          abortOn: FooActions.loadFooDataFailure,
+          abortWith: BazActions.loadBazDataAbort,
 
+          // Fetch Baz once prerequisites are available
+          then: (foos) => this.bazHttpService.getBazData(foos),
+
+          // Map results to actions
+          onSuccess: (bazData) => BazActions.loadBazDataSuccess({ bazData }),
+          onError: (error) => BazActions.loadBazDataFailure({ error }),
+        }),
+      ),
+    ),
+  );
 }
-```
+~~~
 
-As you can see from the above examples, there's plenty of flexibility and control with this pattern, with the small cost of cognitive overhead - but it's precisely the kind of overhead that we want to embrace as it gives us more power as FE developers lighten the load on our backend services and allows us to create a more responsive and fluid user experience.
+With this approach, the effect reads as a short, linear narrative:
 
-It all starts with using the resolvers to load data, but through firing actions instead of blocking the route activation:
+- Wait for upstream data to be available
+- Abort if a failure occurs
+- Fetch dependent data
+- Map to success or error actions
 
-`resolve: [() => inject(Store).dispatch(FeatureActions.entered())]`
+This removes most RxJS ceremony from the call site and makes the intent immediately clear in PR reviews.
 
-The advantage of this approach is that routes activate immediately and users get immediate feedback that their action has been registered, while the data loading happens asynchronously in the background.
+This pattern relies on a shared convention:
 
-The important thing to remember here is that because the route activates immediately, views/screens should handle loading/error states gracefully as otherwise users might be left staring at a blank page with no feedback for an extended period of time if the API call is slow or fails.
+- `undefined` = not yet fetched
+- `null` = fetched but failed
+- any other value (including `[]`) = fetched successfully
 
-In the event of a page that the user may not be authorised to view, best use a loading spinner or skeleton screen to give immediate feedback that their action has been registered and the app is working on it, and then handle any 403 errors in the effects by redirecting to an access denied page or back to a safe page.
+By standardising on this convention, `waitFor` can safely distinguish between “still loading” and “ready”, without misinterpreting empty collections.
 
-In the case where we get a 403 indicating a user is not authorised to view a page after they've already navigated to it, a follow on NgRx effect can handle this by redirecting the user to an access denied page or back to a safe page.
+This 3rd pattern illustrates the power of declarative code combined with RxJs orchestration: we can express complex dependencies and policies in a way that is still readable, testable, and reviewable.
 
-This ensures that for the 99% of situations where users do have permission to access the page they are navigating to, the experience is fast and fluid with the application responding immediately to user input.
 
-> Security implications: You might wonder whether activating the route immediately has security implications, because an unauthorised user might get the JS bundle for the page they are not authorised to view before being redirected away by the effect that handles the 403 error.
->
-> In practice, this does not meaningfully reduce security:
->
-> - Frontend code and routes are inherently discoverable by a motivated user (e.g. by typing URLs directly or inspecting the downloaded JavaScript).
-> - A spinner/skeleton does not reveal protected data — it’s just feedback that navigation started.
->
-> The security boundary must still live on the backend: always enforce authorisation on API requests and only return data the current user is allowed to access. If the API responds with `403`, handle it in an effect and redirect to an access-denied (or other safe) page.
+---
 
-The goal of a route-driven approach to data loading isn't just to give us more power as FE developers, but also to simplify the mental model around what data should be loaded where through that question being answered always by 'what route are you on?'.
+### UX rationale
+
+This architecture is grounded in how humans actually perceive responsiveness.
+
+Human–computer interaction research identifies three broad thresholds:
+
+- Around **100 ms**: responses feel instantaneous and preserve a sense of direct control
+- Around **1 second**: delays are noticeable but flow is usually maintained
+- Around **10 seconds**: disengagement and context-switching become highly likely
+
+These are best understood as upper bounds, not design targets.
+
+In practice, flow often degrades much earlier — frequently after just **1–2 seconds**, especially for experienced users and knowledge workers. At that point, working memory begins to decay and users must mentally reconstruct context, which is cognitively expensive.
+
+This is why even small, frequent delays can have a disproportionate impact on productivity: not because of the raw time lost, but because of the repeated disruption of attention and flow.
+
+From this perspective, frontend architecture should prioritise **predictability and agency over strict data guarantees at route time**.
+
+A three-second wait with immediate visual feedback (skeleton, spinner, layout rendered) is often perceived as more usable than a one-second freeze with no visible response.
+
+> Aside: this is why async route resolvers and guards can be problematic when used for data hydration. They block route activation until data loads, delaying all feedback.  
+> You might argue that the solution is simply to keep those API calls fast — but in practice, all APIs are slow sometimes. The 95th percentile latency of your endpoints is often worse than you think.
+
+The practical goal should be:
+
+> Every meaningful user action produces visible feedback quickly, even if full data hydration happens later.
+
+---
+
+### Security implications
+
+You might wonder whether activating the route immediately has security implications — for example, an unauthorised user briefly loading the JS bundle for a protected page before being redirected on a `403`.
+
+In practice, this does not meaningfully reduce security:
+
+- Frontend code and routes are inherently discoverable by a motivated user
+- A spinner or skeleton reveals no protected data — it only indicates navigation occurred
+
+The security boundary must live on the backend:
+
+- Always enforce authorisation on API requests
+- Only return data the current user is allowed to access
+- If the API responds with `403`, handle it in an effect and redirect to an access-denied (or other safe) page
+
+Fast navigation and strong security are not in tension if the backend is correctly enforcing access control.
+
 
 
 ## Component Viewmodel Pattern
