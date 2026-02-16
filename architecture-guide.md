@@ -4,7 +4,7 @@ This is one of three documents that together provide a comprehensive guide to bu
 
 > **Architecture Guide** (this document) - which describes a declarative architecture for Angular applications using NgRx and Signals. It covers high-level architectural principles, folder organization, component patterns, orchestration and routing strategy.
 
-> [NgRx Best Practice Guide](https://github.com/frabrooks/angular-architecture-guide/blob/main/ngrx-best-practice.md) - which introduces NgRx and outlines best practices to aim for and anti-patterns to avoid. You may want to start with this one if you're new to NgRx.
+> [NgRx Best Practice Guide](https://github.com/frabrooks/angular-architecture-guide/blob/main/ngrx-best-practice-guide.md) - which introduces NgRx and outlines best practices to aim for and anti-patterns to avoid. You may want to start with this one if you're new to NgRx.
 
 > [Testing Approach Guide](TODO) - which describes how to approach testing in an Angular + NgRx codebase, including patterns for testing components, services, and NgRx artifacts.
 
